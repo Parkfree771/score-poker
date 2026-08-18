@@ -9,16 +9,24 @@ import 'package:score_poker/domain/game.dart';
 import 'package:score_poker/domain/records.dart';
 import 'package:score_poker/domain/scoring.dart';
 import 'package:score_poker/l10n/app_localizations.dart';
+import 'package:score_poker/l10n/app_localizations_en.dart';
 import 'package:score_poker/l10n/app_localizations_ko.dart';
 import 'package:score_poker/ui/game_screen.dart';
 import 'package:score_poker/ui/home_screen.dart';
 import 'package:score_poker/ui/persona_select_screen.dart';
 import 'package:score_poker/ui/personas.dart';
+import 'package:score_poker/data/app_settings.dart';
 import 'package:score_poker/ui/ranking_screen.dart';
+import 'package:score_poker/ui/how_to_play_screen.dart';
+import 'package:score_poker/ui/rules_screen.dart';
+import 'package:score_poker/ui/settings_screen.dart';
+import 'package:score_poker/ui/shop_screen.dart';
 import 'package:score_poker/ui/widgets/celebration.dart';
 import 'package:score_poker/ui/theme.dart';
 import 'package:score_poker/ui/widgets/card_face.dart';
 import 'package:score_poker/ui/widgets/opening_sequence.dart';
+import 'package:score_poker/monetization/monetization.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // Renders screens to PNG (goldens/shot_*.png) for visual review.
 // Run: flutter test test/screenshots_test.dart --update-goldens
@@ -57,14 +65,21 @@ ThemeData _testTheme() {
   );
 }
 
-Widget _app(Widget child) => MaterialApp(
+Widget _app(Widget child, {String locale = 'ko'}) => MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: _testTheme(),
-      locale: const Locale('ko'),
+      locale: Locale(locale),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       home: child,
     );
+
+/// 설정 화면은 AppSettingsScope를 요구한다(실제 앱과 같은 순서로 감싼다).
+Widget _appWithSettings(Widget child, {String locale = 'ko', Locale? selected}) {
+  final settings = AppSettings();
+  if (selected != null) settings.setLocale(selected);
+  return AppSettingsScope(settings: settings, child: _app(child, locale: locale));
+}
 
 void _place(GameState s, PlayerId p, int row, List<PlayingCard> cards) {
   for (var i = 0; i < cards.length; i++) {
@@ -72,8 +87,8 @@ void _place(GameState s, PlayerId p, int row, List<PlayingCard> cards) {
   }
 }
 
-GameState _demoState() {
-  final s = GameState.custom(Deck.shuffled(seed: 7));
+GameState _demoState({Map<PlayerId, GameRules> rules = const {}}) {
+  final s = GameState.custom(Deck.shuffled(seed: 7), rules: rules);
   const h = Suit.hearts, sp = Suit.spades, d = Suit.diamonds, c = Suit.clubs;
   _place(s, PlayerId.p0, 0, [const PlayingCard(14, sp), const PlayingCard(14, h)]);
   _place(s, PlayerId.p0, 1, [const PlayingCard(10, c), const PlayingCard(10, d), const PlayingCard(10, sp)]);
@@ -455,5 +470,175 @@ void main() {
     ));
     await tester.pumpAndSettle();
     await expectLater(find.byType(Wrap), matchesGoldenFile('goldens/shot_10_card_gallery.png'));
+  });
+
+  testWidgets('shop portrait', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await setScreen(tester, _portrait);
+    final m = Monetization(purchases: StubPurchaseService(autoGrant: true));
+    await m.startAsync();
+    addTearDown(m.dispose);
+    await tester.pumpWidget(_app(MonetizationScope(
+      monetization: m,
+      child: const ShopScreen(),
+    )));
+    await tester.pumpAndSettle();
+    await expectLater(find.byType(ShopScreen), matchesGoldenFile('goldens/shot_26_shop_portrait.png'));
+  });
+
+  testWidgets('shop landscape', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await setScreen(tester, _landscape);
+    final m = Monetization(purchases: StubPurchaseService(autoGrant: true));
+    await m.startAsync();
+    addTearDown(m.dispose);
+    await tester.pumpWidget(_app(MonetizationScope(
+      monetization: m,
+      child: const ShopScreen(),
+    )));
+    await tester.pumpAndSettle();
+    await expectLater(find.byType(ShopScreen), matchesGoldenFile('goldens/shot_27_shop_landscape.png'));
+  });
+
+  testWidgets('game with tokens portrait', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await setScreen(tester, _portrait);
+    final m = Monetization(purchases: StubPurchaseService());
+    await m.startAsync();
+    addTearDown(m.dispose);
+    await tester.pumpWidget(_app(MonetizationScope(
+      monetization: m,
+      child: GameScreen(
+        initialState: _demoState(rules: const {PlayerId.p0: GameRules.standard}),
+      ),
+    )));
+    // 내 차례 골드 링이 무한 반복이라 pumpAndSettle 대신 고정 펌프.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 700));
+    await expectLater(
+        find.byType(GameScreen), matchesGoldenFile('goldens/shot_28_game_tokens.png'));
+  });
+
+  testWidgets('game with tokens landscape', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await setScreen(tester, _landscape);
+    final m = Monetization(purchases: StubPurchaseService());
+    await m.startAsync();
+    addTearDown(m.dispose);
+    await tester.pumpWidget(_app(MonetizationScope(
+      monetization: m,
+      child: GameScreen(
+        initialState: _demoState(rules: const {PlayerId.p0: GameRules.standard}),
+      ),
+    )));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 700));
+    await expectLater(find.byType(GameScreen),
+        matchesGoldenFile('goldens/shot_29_game_tokens_landscape.png'));
+  });
+
+  // ── 언어: 영어 빌드가 실제로 영어로 나오는지 눈으로 확인하는 샷들 ──────────────
+
+  testWidgets('settings korean', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await setScreen(tester, _portrait);
+    await tester.pumpWidget(_appWithSettings(const SettingsScreen()));
+    await tester.pumpAndSettle();
+    await expectLater(
+        find.byType(SettingsScreen), matchesGoldenFile('goldens/shot_30_settings_ko.png'));
+  });
+
+  testWidgets('settings english', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await setScreen(tester, _portrait);
+    await tester.pumpWidget(_appWithSettings(const SettingsScreen(),
+        locale: 'en', selected: const Locale('en')));
+    await tester.pumpAndSettle();
+    await expectLater(
+        find.byType(SettingsScreen), matchesGoldenFile('goldens/shot_31_settings_en.png'));
+  });
+
+  testWidgets('home english', (tester) async {
+    await setScreen(tester, _portrait);
+    await tester.pumpWidget(
+        _app(HomeScreen(rankingPreloaded: _demoRanking()), locale: 'en'));
+    await tester.pumpAndSettle();
+    await expectLater(
+        find.byType(HomeScreen), matchesGoldenFile('goldens/shot_32_home_en.png'));
+  });
+
+  testWidgets('shop english', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await setScreen(tester, _portrait);
+    final m = Monetization(purchases: StubPurchaseService());
+    await m.startAsync();
+    addTearDown(m.dispose);
+    await tester.pumpWidget(_app(
+      MonetizationScope(monetization: m, child: const ShopScreen()),
+      locale: 'en',
+    ));
+    await tester.pumpAndSettle();
+    await expectLater(
+        find.byType(ShopScreen), matchesGoldenFile('goldens/shot_33_shop_en.png'));
+  });
+
+  testWidgets('persona select english', (tester) async {
+    await setScreen(tester, _portrait);
+    await tester.pumpWidget(_app(const PersonaSelectScreen(), locale: 'en'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 700));
+    await expectLater(find.byType(PersonaSelectScreen),
+        matchesGoldenFile('goldens/shot_34_persona_select_en.png'));
+  });
+
+  testWidgets('persona speech english', (tester) async {
+    await setScreen(tester, _portrait);
+    final clode = buildPersonas(AppLocalizationsEn())[0];
+    await tester.pumpWidget(
+        _app(GameScreen(initialState: _demoState(), persona: clode), locale: 'en'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await expectLater(find.byType(GameScreen),
+        matchesGoldenFile('goldens/shot_35_persona_speech_en.png'));
+    await tester.pump(const Duration(seconds: 4));
+  });
+
+  // ── 튜토리얼 · 규칙 ─────────────────────────────────────────────────────────
+
+  testWidgets('how to play korean', (tester) async {
+    await setScreen(tester, _portrait);
+    await tester.pumpWidget(_app(const HowToPlayScreen()));
+    await tester.pumpAndSettle();
+    await expectLater(find.byType(HowToPlayScreen),
+        matchesGoldenFile('goldens/shot_36_howtoplay_ko.png'));
+  });
+
+  testWidgets('how to play english (attack page)', (tester) async {
+    await setScreen(tester, _portrait);
+    await tester.pumpWidget(_app(const HowToPlayScreen(), locale: 'en'));
+    await tester.pumpAndSettle();
+    // 3번째 장(빼앗기) — 삽화가 가장 복잡한 장이라 넘침 검증에 좋다.
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    await expectLater(find.byType(HowToPlayScreen),
+        matchesGoldenFile('goldens/shot_37_howtoplay_en.png'));
+  });
+
+  testWidgets('rules korean', (tester) async {
+    await setScreen(tester, _portrait);
+    await tester.pumpWidget(_app(const RulesScreen()));
+    await tester.pumpAndSettle();
+    await expectLater(
+        find.byType(RulesScreen), matchesGoldenFile('goldens/shot_38_rules_ko.png'));
+  });
+
+  testWidgets('rules english', (tester) async {
+    await setScreen(tester, _portrait);
+    await tester.pumpWidget(_app(const RulesScreen(), locale: 'en'));
+    await tester.pumpAndSettle();
+    await expectLater(
+        find.byType(RulesScreen), matchesGoldenFile('goldens/shot_39_rules_en.png'));
   });
 }

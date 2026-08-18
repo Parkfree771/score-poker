@@ -1,19 +1,57 @@
 import 'package:flutter/material.dart';
 
+import '../data/app_settings.dart';
 import '../data/records_store.dart';
 import '../domain/records.dart';
 import '../l10n/app_localizations.dart';
+import 'how_to_play_screen.dart';
 import 'persona_select_screen.dart';
 import 'ranking_screen.dart';
+import 'settings_screen.dart';
+import 'shop_screen.dart';
 import 'theme.dart';
 
 /// 메인 메뉴: 모드 선택(온라인 대전 / 싱글 플레이).
 /// 랭킹은 오른쪽 위 모서리의 티어 배지로 진입한다.
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, this.rankingPreloaded});
 
   /// 테스트/스크린샷 전용: 모서리 랭킹 배지에 표시할 데이터(저장소를 읽지 않음).
   final RankingData? rankingPreloaded;
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  bool _tutorialChecked = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _maybeShowTutorial();
+  }
+
+  /// 첫 실행이면 튜토리얼을 한 번 띄운다.
+  ///
+  /// 설정 스코프가 없는 환경(위젯 테스트·스크린샷)에서는 아무것도 하지 않는다 —
+  /// 기존 골든이 튜토리얼에 가려지면 안 된다.
+  void _maybeShowTutorial() {
+    if (_tutorialChecked) return;
+    final settings = AppSettingsScope.maybeOf(context);
+    if (settings == null || settings.isLoading) return; // 로드 후 다시 불린다
+    _tutorialChecked = true;
+    if (settings.seenHowToPlay) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      await settings.markHowToPlaySeen();
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const HowToPlayScreen()),
+      );
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -22,9 +60,23 @@ class HomeScreen extends StatelessWidget {
       appBar: AppBar(
         title: Text(l10n.appTitle),
         actions: [
+          IconButton(
+            tooltip: l10n.settingsTitle,
+            icon: const Icon(Icons.settings_rounded),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const SettingsScreen()),
+            ),
+          ),
+          IconButton(
+            tooltip: l10n.shopTitle,
+            icon: const Icon(Icons.storefront_rounded),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const ShopScreen()),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
-            child: Center(child: _RankingBadge(preloaded: rankingPreloaded)),
+            child: Center(child: _RankingBadge(preloaded: widget.rankingPreloaded)),
           ),
         ],
       ),
@@ -59,6 +111,18 @@ class HomeScreen extends StatelessWidget {
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(builder: (_) => const PersonaSelectScreen()),
                     ),
+                  ),
+                  const SizedBox(height: 10),
+                  // 규칙이 특이한 게임이라 "어떻게 하는 건데?"가 첫 화면에서 보여야 한다.
+                  TextButton.icon(
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(builder: (_) => const HowToPlayScreen()),
+                    ),
+                    icon: const Icon(Icons.help_outline_rounded,
+                        size: 18, color: AppColors.textMuted),
+                    label: Text(l10n.howToPlayTitle,
+                        style: const TextStyle(
+                            color: AppColors.textMuted, fontWeight: FontWeight.w700)),
                   ),
                 ],
               ),

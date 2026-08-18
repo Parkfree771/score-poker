@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 런처(홈 화면)에 표시되는 앱 이름. 기본값 = 영어. -->
+    <string name="app_name">Score Poker</string>
+</resources>

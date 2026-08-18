@@ -137,6 +137,8 @@ class _PersonaCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(persona.tagline,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(color: AppColors.ink, fontWeight: FontWeight.w900, fontSize: 11.5)),
     );
 
@@ -145,13 +147,21 @@ class _PersonaCard extends StatelessWidget {
     final text = Column(
       crossAxisAlignment: vertical ? CrossAxisAlignment.center : CrossAxisAlignment.start,
       children: [
+        // 이름과 태그라인은 둘 다 줄어들 수 있어야 한다 — 번역에 따라 길이가 크게
+        // 달라진다("신중한 전략가" vs "Cautious strategist"). 고정 크기로 두면
+        // 영어에서 가로로 넘친다.
         Row(
           mainAxisSize: vertical ? MainAxisSize.min : MainAxisSize.max,
           children: [
-            Text(persona.name,
-                style: TextStyle(color: c, fontWeight: FontWeight.w900, fontSize: 23, letterSpacing: 0.5)),
+            Flexible(
+              child: Text(persona.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      color: c, fontWeight: FontWeight.w900, fontSize: 23, letterSpacing: 0.5)),
+            ),
             const SizedBox(width: 10),
-            taglineChip,
+            Flexible(child: taglineChip),
           ],
         ),
         const SizedBox(height: 5),

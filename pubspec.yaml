@@ -15,6 +15,9 @@ dependencies:
   flutter_svg: ^2.0.10
   shared_preferences: ^2.5.5
   lottie: ^3.5.1
+  # 인앱 결제(소비성 토큰). 안드로이드/iOS에서만 동작 — 웹·데스크톱은 StubPurchaseService.
+  in_app_purchase: ^3.2.0
+  in_app_purchase_android: ^0.4.0
 
 dev_dependencies:
   flutter_test:

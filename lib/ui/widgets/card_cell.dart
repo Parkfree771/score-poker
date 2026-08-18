@@ -50,9 +50,9 @@ class CardCell extends StatelessWidget {
                   border: Border.all(color: AppColors.gold, width: 2.6),
                   boxShadow: [BoxShadow(color: AppColors.gold.withValues(alpha: 0.5), blurRadius: 12)],
                 ),
-                child: CardFace(card: placed!.card, size: w),
+                child: cachedCardFace(placed!.card, w),
               )
-            : CardFace(card: placed!.card, size: w));
+            : cachedCardFace(placed!.card, w));
 
     return GestureDetector(
       onTap: onTap,

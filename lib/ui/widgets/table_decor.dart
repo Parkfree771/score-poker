@@ -202,7 +202,7 @@ class DeckPileView extends StatelessWidget {
             children: [
               Positioned(left: 4, right: 0, bottom: 0, child: _GroundShadow(width: s)),
               for (var i = 0; i < 3; i++)
-                Positioned(left: i * 4.0, top: (2 - i) * 3.0, child: CardBack(size: s)),
+                Positioned(left: i * 4.0, top: (2 - i) * 3.0, child: cachedCardBack(s)),
             ],
           ),
         ),
@@ -306,7 +306,10 @@ class _TurnAvatarState extends State<TurnAvatar> with SingleTickerProviderStateM
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
+    // RepaintBoundary 필수 — 이 링은 차례 내내 초당 60번 다시 칠해진다.
+    // 격리하지 않으면 그 리페인트가 부모 레이어(= 보드 전체)로 번진다.
+    return RepaintBoundary(
+      child: AnimatedBuilder(
       animation: _c,
       builder: (context, child) {
         final glow = widget.active ? 0.35 + 0.35 * _c.value : 0.0;
@@ -335,6 +338,7 @@ class _TurnAvatarState extends State<TurnAvatar> with SingleTickerProviderStateM
         alignment: Alignment.center,
         child: const Icon(Icons.person_rounded, size: 17, color: Colors.white),
       ),
+    ),
     );
   }
 }

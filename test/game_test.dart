@@ -6,6 +6,9 @@ import 'package:score_poker/domain/game.dart';
 PlayingCard card(int rank, [Suit suit = Suit.clubs]) => PlayingCard(rank, suit);
 PlayingCard shield(int rank, [Suit suit = Suit.clubs]) =>
     PlayingCard(rank, suit, isShield: true);
+/// 공격 표식이 붙은 카드(처음 받은 손패에 해당).
+PlayingCard atk(int rank, [Suit suit = Suit.clubs]) =>
+    PlayingCard(rank, suit, isAttacker: true);
 PlayingCard joker() => PlayingCard.undesignatedJoker();
 
 /// 필러 카드로 채운 덱(보상 드로우/조기 종료 방지용).
@@ -82,51 +85,104 @@ void main() {
     });
   });
 
-  group('제거 + 보상 드로우', () {
-    test('제거 → 보상 쉴드가 손패로 들어오고 턴 종료', () {
+  group('빼앗기(공격)', () {
+    test('같은 숫자로 빼앗으면 내 칸에 쉴드로 박히고, 보너스 배치가 열린다', () {
       final g = GameState.custom(fillerDeck());
-      g.hands[PlayerId.p0]!.add(card(6, Suit.hearts));
+      g.hands[PlayerId.p0]!.addAll([atk(6, Suit.hearts), card(4)]);
       g.hands[PlayerId.p1]!.add(card(3));
       g.fields[PlayerId.p1]![0][0] = PlacedCard(card(6, Suit.spades), PlayerId.p1);
       g.current = PlayerId.p0;
 
-      final before = g.hands[PlayerId.p0]!.length;
-      g.removeOpponentCard(0, 0, 0);
-      expect(g.fields[PlayerId.p1]![0][0], isNull); // 제거됨
-      expect(g.hands[PlayerId.p0]!.length, before); // 무기 나가고 보상 들어옴(순증 0)
-      expect(g.hands[PlayerId.p0]!.last.isShield, isTrue); // 보상은 쉴드
-      expect(g.lastReward, isNotNull);
-      expect(g.current, PlayerId.p1); // 턴 종료
+      g.attack(0, 0, 0, 1, 0);
+      expect(g.fields[PlayerId.p1]![0][0], isNull); // 상대 칸이 비고
+      final stolen = g.fields[PlayerId.p0]![1][0]!; // 내 칸에 들어옴
+      expect(stolen.card.rank, 6);
+      expect(stolen.card.suit, Suit.spades);
+      expect(stolen.isShield, isTrue); // 쉴드로 고정 → 되빼앗기 불가
+      expect(g.lastStolen, isNotNull);
+      expect(g.pendingBonus, isTrue);
+      expect(g.current, PlayerId.p0); // 턴은 아직 내 것
     });
 
-    test('다른 숫자로는 제거 불가', () {
+    test('보너스로 한 번 더 놓으면 턴이 넘어간다', () {
       final g = GameState.custom(fillerDeck());
-      g.hands[PlayerId.p0]!.add(card(5));
+      g.hands[PlayerId.p0]!.addAll([atk(6), card(4)]);
+      g.hands[PlayerId.p1]!.add(card(3));
+      g.fields[PlayerId.p1]![0][0] = PlacedCard(card(6, Suit.spades), PlayerId.p1);
+      g.current = PlayerId.p0;
+
+      g.attack(0, 0, 0, 1, 0);
+      g.placeCard(0, PlayerId.p0, 2, 0); // 보너스 배치
+      expect(g.pendingBonus, isFalse);
+      expect(g.current, PlayerId.p1);
+    });
+
+    test('보너스는 포기할 수 있고, 보너스 중에는 다시 공격 못 한다', () {
+      final g = GameState.custom(fillerDeck());
+      g.hands[PlayerId.p0]!.addAll([atk(6), atk(7)]);
+      g.hands[PlayerId.p1]!.add(card(3));
+      g.fields[PlayerId.p1]![0][0] = PlacedCard(card(6, Suit.spades), PlayerId.p1);
+      g.fields[PlayerId.p1]![0][1] = PlacedCard(card(7, Suit.spades), PlayerId.p1);
+      g.current = PlayerId.p0;
+
+      g.attack(0, 0, 0, 1, 0);
+      expect(() => g.attack(0, 0, 1, 1, 1), throwsA(isA<IllegalMove>()));
+      g.passBonus();
+      expect(g.pendingBonus, isFalse);
+      expect(g.current, PlayerId.p1);
+    });
+
+    test('처음 받은 카드가 아니면 공격 불가 (조커는 예외)', () {
+      final g = GameState.custom(fillerDeck());
+      g.hands[PlayerId.p0]!.addAll([card(6), joker()]); // 표식 없는 6 + 조커
+      g.fields[PlayerId.p1]![0][0] = PlacedCard(card(6, Suit.spades), PlayerId.p1);
+      g.current = PlayerId.p0;
+
+      expect(() => g.attack(0, 0, 0, 0, 0), throwsA(isA<IllegalMove>()));
+      g.attack(1, 0, 0, 0, 0); // 조커는 표식 없이도 가능
+      expect(g.fields[PlayerId.p1]![0][0], isNull);
+    });
+
+    test('다른 숫자로는 빼앗을 수 없다', () {
+      final g = GameState.custom(fillerDeck());
+      g.hands[PlayerId.p0]!.add(atk(5));
       g.fields[PlayerId.p1]![0][0] = PlacedCard(card(6), PlayerId.p1);
       g.current = PlayerId.p0;
-      expect(() => g.removeOpponentCard(0, 0, 0), throwsA(isA<IllegalMove>()));
+      expect(() => g.attack(0, 0, 0, 0, 0), throwsA(isA<IllegalMove>()));
     });
 
-    test('쉴드 카드는 일반 카드로 제거 불가, 조커로는 가능', () {
+    test('쉴드는 일반 카드로 못 빼앗고 조커로는 가능', () {
       final g = GameState.custom(fillerDeck());
-      g.hands[PlayerId.p0]!.addAll([card(6), joker()]);
+      g.hands[PlayerId.p0]!.addAll([atk(6), joker()]);
       g.fields[PlayerId.p1]![0][0] = PlacedCard(shield(6), PlayerId.p1);
       g.current = PlayerId.p0;
 
-      expect(() => g.removeOpponentCard(0, 0, 0), throwsA(isA<IllegalMove>()));
-      g.removeOpponentCard(1, 0, 0); // 조커는 쉴드도 제거
+      expect(() => g.attack(0, 0, 0, 0, 0), throwsA(isA<IllegalMove>()));
+      g.attack(1, 0, 0, 0, 0);
       expect(g.fields[PlayerId.p1]![0][0], isNull);
-      expect(g.hands[PlayerId.p0]!.last.isShield, isTrue); // 보상 쉴드가 손패로
-      expect(g.current, PlayerId.p1); // 턴 종료
+      expect(g.fields[PlayerId.p0]![0][0]!.isShield, isTrue);
     });
 
-    test('조커로 놓은 카드는 일반 카드로 제거 불가', () {
+    test('조커로 놓은 카드는 일반 카드로 빼앗을 수 없다', () {
       final g = GameState.custom(fillerDeck());
-      g.hands[PlayerId.p0]!.add(card(9));
+      g.hands[PlayerId.p0]!.add(atk(9));
       g.fields[PlayerId.p1]![0][0] =
           PlacedCard(card(9, Suit.spades).copyWith(isJoker: true), PlayerId.p1);
       g.current = PlayerId.p0;
-      expect(() => g.removeOpponentCard(0, 0, 0), throwsA(isA<IllegalMove>()));
+      expect(() => g.attack(0, 0, 0, 0, 0), throwsA(isA<IllegalMove>()));
+    });
+
+    test('빼앗은 카드를 놓을 빈 칸이 없으면 공격 불가', () {
+      final g = GameState.custom(fillerDeck());
+      g.hands[PlayerId.p0]!.add(atk(6));
+      for (var r = 0; r < kRows; r++) {
+        for (var c = 0; c < kCols; c++) {
+          g.fields[PlayerId.p0]![r][c] = PlacedCard(card(2), PlayerId.p0);
+        }
+      }
+      g.fields[PlayerId.p1]![0][0] = PlacedCard(card(6, Suit.spades), PlayerId.p1);
+      g.current = PlayerId.p0;
+      expect(() => g.attack(0, 0, 0, 0, 0), throwsA(isA<IllegalMove>()));
     });
   });
 
@@ -153,20 +209,36 @@ void main() {
     });
   });
 
-  group('드로우 단계', () {
-    test('양측 시작 카드 소진 후 턴 시작에 1장 드로우', () {
+  group('매 턴 보충', () {
+    test('턴 시작에 손패가 kHandSize장이 되도록 채워진다', () {
       final g = GameState.custom(fillerDeck());
-      g.hands[PlayerId.p0]!.add(card(5)); // 마지막 시작 카드
+      g.hands[PlayerId.p0]!.add(card(5));
       g.hands[PlayerId.p1]!.add(card(8));
-      g.startingLeft[PlayerId.p0] = 1;
-      g.startingLeft[PlayerId.p1] = 0; // p1은 이미 소진
       g.current = PlayerId.p0;
 
-      g.placeCard(0, PlayerId.p0, 0, 0); // p0 마지막 시작 카드 소진 → drawPhase on
-      expect(g.drawPhase, isTrue);
-      // 턴이 p1로 넘어가며 1장 드로우 → 손패 2장
+      g.placeCard(0, PlayerId.p0, 0, 0);
       expect(g.current, PlayerId.p1);
-      expect(g.hands[PlayerId.p1]!.length, 2);
+      expect(g.hands[PlayerId.p1]!.length, kHandSize); // 1장 → 5장으로 보충
+    });
+
+    test('보충으로 뽑은 카드에는 공격 표식이 없다', () {
+      final g = GameState.deal(seed: 3);
+      expect(g.hands[PlayerId.p0]!.every((c) => c.isAttacker), isTrue); // 처음 6장
+      g.revealForFirstTurn(0, 0);
+      final first = g.current;
+      g.placeCard(0, first, 0, 0); // 5 → 4
+      g.placeCard(0, first.other, 0, 0); // 상대도 두면 내 턴 시작에 1장 보충된다
+      expect(g.hands[first]!.length, kHandSize);
+      expect(g.hands[first]!.last.isAttacker, isFalse);
+    });
+
+    test('덱이 마르면 더 이상 보충되지 않는다', () {
+      final g = GameState.custom(Deck(<PlayingCard>[]));
+      g.hands[PlayerId.p0]!.addAll([card(5), card(6)]);
+      g.hands[PlayerId.p1]!.add(card(8));
+      g.current = PlayerId.p0;
+      g.placeCard(0, PlayerId.p0, 0, 0);
+      expect(g.hands[PlayerId.p1]!.length, 1);
     });
   });
 

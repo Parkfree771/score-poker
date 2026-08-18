@@ -38,11 +38,22 @@ class BoardView extends StatelessWidget {
   static const double _portraitRatio = 1.26; // 세로: 폭 확보를 위해 살짝 낮은 비율
   static const double _landscapeRatio = 1.36; // 가로: 원비율
   static const double _centerW = 66; // 가로 모드 중앙 점수 열 폭
+  static const double _slotPadV = 1; // _BoardSlot 세로 패딩(위/아래 각각)
+  static const double _laneGap = 22; // 세로 모드에서 골드 선이 지나가는 틈
+
+  // 보드 높이는 셀 크기에서 그대로 계산된다 → IntrinsicHeight(서브트리를 두 번
+  // 레이아웃한다)를 쓸 이유가 없다. 아래 값이 IntrinsicHeight가 재던 값과 같다.
+  static const double _portraitLaneH =
+      2 * kCols * (_cell * _portraitRatio + _slotPadV * 2) + _laneGap;
+  static const double _landscapeBoardH = kRows * (_cell * _landscapeRatio + _slotPadV * 2 + 2);
 
   @override
   Widget build(BuildContext context) {
     final content = landscape ? _landscapeBoard() : _portraitBoard();
-    return Center(
+    // SizedBox.expand 필수 — 느슨한 제약 아래의 FittedBox는 자식 크기를 그대로
+    // 쓰기 때문에 축소만 되고 확대가 안 된다. 꽉 찬 박스를 줘야 남는 공간만큼
+    // 보드가 커진다(가로 모드에서 카드가 작아 보이던 원인).
+    return SizedBox.expand(
       child: FittedBox(
         fit: BoxFit.contain,
         child: Padding(padding: const EdgeInsets.all(8), child: content),
@@ -98,7 +109,8 @@ class BoardView extends StatelessWidget {
             ],
           ),
         ),
-        IntrinsicHeight(
+        SizedBox(
+          height: _portraitLaneH,
           child: Row(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -144,7 +156,8 @@ class BoardView extends StatelessWidget {
 
   Widget _landscapeBoard() {
     final opp = viewer.other;
-    return IntrinsicHeight(
+    return SizedBox(
+      height: _landscapeBoardH,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -268,7 +281,7 @@ class _BoardSlot extends StatelessWidget {
         child: SizedBox(
           width: size,
           height: CardFace.heightFor(size),
-          child: CardFace(card: placed!.card, size: size),
+          child: cachedCardFace(placed!.card, size),
         ),
       );
       inner = highlighted

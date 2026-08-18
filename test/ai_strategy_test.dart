@@ -8,8 +8,8 @@ void _apply(GameState s, AiMove m) {
       s.fold();
     case PlaceMove(:final handIndex, :final target, :final row, :final col, :final jokerRank, :final jokerSuit):
       s.placeCard(handIndex, target, row, col, jokerRank: jokerRank, jokerSuit: jokerSuit);
-    case RemoveMove(:final handIndex, :final row, :final col):
-      s.removeOpponentCard(handIndex, row, col);
+    case AttackMove(:final handIndex, :final row, :final col, :final myRow, :final myCol):
+      s.attack(handIndex, row, col, myRow, myCol);
   }
 }
 
@@ -40,7 +40,7 @@ void main() {
     });
   }
 
-  test('공격형(헷)은 수비형(크로드)보다 제거 수를 더 많이 시도한다', () {
+  test('공격형(헷)은 수비형(크로드)보다 빼앗기를 더 많이 시도한다', () {
     var hetRemoves = 0, clodeRemoves = 0;
     for (var seed = 1; seed <= 5; seed++) {
       for (final (style, counter) in [(AiStyle.het, true), (AiStyle.clode, false)]) {
@@ -52,7 +52,7 @@ void main() {
         while (!s.isFinished && turns < 300) {
           final mover = s.current;
           final move = (mover == PlayerId.p0 ? me : other).decide(s, mover);
-          if (mover == PlayerId.p0 && move is RemoveMove) {
+          if (mover == PlayerId.p0 && move is AttackMove) {
             if (counter) {
               hetRemoves++;
             } else {

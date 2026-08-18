@@ -6,12 +6,15 @@ import 'card_face.dart';
 import 'suit_glyphs.dart';
 
 /// 뒤집힌 카드 한 장(상대 손패용). [CardFace]와 동일한 프레임/비율.
+///
+/// 여러 장을 동시에 그릴 때는 [cachedCardBack]을 쓸 것.
 class CardBack extends StatelessWidget {
   const CardBack({super.key, required this.size});
 
   final double size;
 
   static double heightFor(double size) => CardFace.heightFor(size);
+
 
   @override
   Widget build(BuildContext context) {
@@ -39,7 +42,7 @@ class CardBack extends StatelessWidget {
               ),
             ),
           ),
-          Positioned.fill(child: SvgPicture.string(cardBackSvg(), fit: BoxFit.fill)),
+          Positioned.fill(child: SvgPicture(cardBackLoader, fit: BoxFit.fill)),
         ],
       ),
     );
@@ -76,7 +79,7 @@ class FaceDownHand extends StatelessWidget {
                     left: i * (w - overlap),
                     child: Transform.rotate(
                       angle: (i - (shown - 1) / 2) * 0.045,
-                      child: CardBack(size: w),
+                      child: cachedCardBack(w),
                     ),
                   ),
               ],

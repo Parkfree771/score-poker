@@ -19,10 +19,12 @@ class PlaceMove extends AiMove {
   final Suit? jokerSuit;
 }
 
-class RemoveMove extends AiMove {
-  const RemoveMove(this.handIndex, this.row, this.col);
+/// 공격(빼앗기): [row]/[col]의 상대 카드를 뽑아 내 [myRow]/[myCol] 빈 칸에 놓는다.
+class AttackMove extends AiMove {
+  const AttackMove(this.handIndex, this.row, this.col, this.myRow, this.myCol);
   final int handIndex;
   final int row, col;
+  final int myRow, myCol;
 }
 
 class FoldMove extends AiMove {
@@ -58,6 +60,8 @@ class HeuristicAi {
     final hand = s.hands[me]!;
     if (hand.isEmpty) return const FoldMove();
     final opp = me.other;
+    // 보너스 배치 차례에는 배치만 가능 — 공격 후보는 만들지 않는다.
+    if (s.pendingBonus) return _fallback(s, me, opp) ?? const FoldMove();
 
     double bestScore = double.negativeInfinity;
     AiMove? best;
@@ -94,15 +98,34 @@ class HeuristicAi {
       final gain = _placeGain(s, me, opp, r, c);
       consider(gain, PlaceMove(i, me, r, col));
     }
-    // 같은 숫자 제거(+쉴드 보상 8점 가치) — 공격 성향으로 가중
+    // 공격(빼앗기)은 **처음 받은 카드**로만 — 공격 성향으로 가중
+    if (!c.canAttack) return;
     for (var r = 0; r < kRows; r++) {
       for (var col = 0; col < kCols; col++) {
         final cell = s.fields[opp]![r][col];
         if (cell == null || !cell.removableByNormal || cell.card.rank != c.rank) continue;
+        final dest = _bestDest(s, me, opp, cell.card);
+        if (dest == null) continue; // 내 필드가 꽉 차면 빼앗을 수 없다
         final dmg = _removeDamage(s, opp, r, cell.card);
-        consider((dmg + 8) * (0.35 + style.aggression * 0.8), RemoveMove(i, r, col));
+        // 상대 피해 + 빼앗은 카드가 내 줄에 붙는 이득 + 추가 배치(보너스) 가치
+        final value = dmg + dest.gain + 8;
+        consider(value * (0.35 + style.aggression * 0.8),
+            AttackMove(i, r, col, dest.row, dest.col));
       }
     }
+  }
+
+  /// 빼앗은 카드를 놓기 가장 좋은 내 빈 칸.
+  ({int row, int col, double gain})? _bestDest(
+      GameState s, PlayerId me, PlayerId opp, PlayingCard stolen) {
+    ({int row, int col, double gain})? best;
+    for (var r = 0; r < kRows; r++) {
+      final col = _firstEmpty(s, me, r);
+      if (col == null) continue;
+      final gain = _placeGain(s, me, opp, r, stolen.asShield());
+      if (best == null || gain > best.gain) best = (row: r, col: col, gain: gain);
+    }
+    return best;
   }
 
   void _considerShield(
@@ -154,13 +177,16 @@ class HeuristicAi {
       }
       consider(bestGain - reserve, PlaceMove(i, me, r, col, jokerRank: bestRank, jokerSuit: bestSuit));
     }
-    // 제거: 무엇이든 제거 가능 — 상대의 가장 아픈 카드를 노린다
+    // 공격: 무엇이든(쉴드 포함) 빼앗을 수 있다 — 상대의 가장 아픈 카드를 노린다
     for (var r = 0; r < kRows; r++) {
       for (var col = 0; col < kCols; col++) {
         final cell = s.fields[opp]![r][col];
         if (cell == null) continue;
+        final dest = _bestDest(s, me, opp, cell.card);
+        if (dest == null) continue;
         final dmg = _removeDamage(s, opp, r, cell.card);
-        consider(dmg * (0.4 + style.aggression * 0.6) - reserve, RemoveMove(i, r, col));
+        consider((dmg + dest.gain + 8) * (0.4 + style.aggression * 0.6) - reserve,
+            AttackMove(i, r, col, dest.row, dest.col));
       }
     }
   }

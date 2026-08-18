@@ -92,7 +92,8 @@ final List<ValueDelegate> planetColors = [
   ValueDelegate.color(const ['**', 'outline 9', '**'], value: const Color(0xFFEDEDF2)),
 ];
 
-/// 세 캐릭터 정의. 이름/태그라인/설명은 l10n, 대사는 캐릭터 고유 톤이라 한글 고정.
+/// 세 캐릭터 정의. **대사까지 전부 l10n을 거친다** — 예전에는 대사만 한글로 박혀 있어서
+/// 영어 빌드에서 말풍선만 한국어로 떴다. 번역은 캐릭터 톤(정중/까불/분석)을 유지한다.
 List<Persona> buildPersonas(AppLocalizations l10n) => [
       Persona(
         id: 'clode',
@@ -107,15 +108,15 @@ List<Persona> buildPersonas(AppLocalizations l10n) => [
         defense: 5,
         trick: 2,
         style: AiStyle.clode,
-        lines: const PersonaLines(
-          greeting: ['좋은 승부를 기대하겠습니다.', '차분히, 그러나 확실하게 두겠습니다.'],
-          removeMine: ['실례합니다 — 그 카드는 회수하겠습니다.', '아깝지만, 필요한 수였습니다.'],
-          removed: ['…좋은 판단이시군요.', '한 수 배웠습니다.'],
-          joker: ['조커는 이럴 때 쓰는 겁니다.', '지금이 그 순간이라고 판단했습니다.'],
-          shieldTrick: ['방어는 최선의 공격이기도 하죠.'],
-          winGame: ['좋은 승부였습니다. 다음에도 기대하죠.', '운이 아니라 계획이었습니다.'],
-          loseGame: ['완패입니다. 인정하죠.', '다음 판은 다를 겁니다.'],
-          drawGame: ['호각이군요. 흥미롭습니다.'],
+        lines: PersonaLines(
+          greeting: [l10n.personaClodeGreeting1, l10n.personaClodeGreeting2],
+          removeMine: [l10n.personaClodeRemoveMine1, l10n.personaClodeRemoveMine2],
+          removed: [l10n.personaClodeRemoved1, l10n.personaClodeRemoved2],
+          joker: [l10n.personaClodeJoker1, l10n.personaClodeJoker2],
+          shieldTrick: [l10n.personaClodeShield1],
+          winGame: [l10n.personaClodeWin1, l10n.personaClodeWin2],
+          loseGame: [l10n.personaClodeLose1, l10n.personaClodeLose2],
+          drawGame: [l10n.personaClodeDraw1],
         ),
       ),
       Persona(
@@ -131,15 +132,15 @@ List<Persona> buildPersonas(AppLocalizations l10n) => [
         defense: 2,
         trick: 3,
         style: AiStyle.het,
-        lines: const PersonaLines(
-          greeting: ['각오는 됐지? 시작하자고.', '내가 왜 승부사라 불리는지 보여줄게.'],
-          removeMine: ['그 카드, 아까웠지? ㅋ', '어이쿠, 손이 미끄러졌네~'],
-          removed: ['야, 그건 반칙 아니야?!', '…방금 건 노카운트로 하자.'],
-          joker: ['짜잔! 조커 타임!', '이 맛에 승부하는 거지!'],
-          shieldTrick: ['선물이야, 사양 말고 받아.'],
-          winGame: ['거봐, 내가 이긴다니까~', '좋은 승부였어. 나한텐.'],
-          loseGame: ['오늘 컨디션이 좀… 아무튼 다시 해!', '한 판 더. 지금 당장.'],
-          drawGame: ['비겼다고? 찝찝하네.'],
+        lines: PersonaLines(
+          greeting: [l10n.personaHetGreeting1, l10n.personaHetGreeting2],
+          removeMine: [l10n.personaHetRemoveMine1, l10n.personaHetRemoveMine2],
+          removed: [l10n.personaHetRemoved1, l10n.personaHetRemoved2],
+          joker: [l10n.personaHetJoker1, l10n.personaHetJoker2],
+          shieldTrick: [l10n.personaHetShield1],
+          winGame: [l10n.personaHetWin1, l10n.personaHetWin2],
+          loseGame: [l10n.personaHetLose1, l10n.personaHetLose2],
+          drawGame: [l10n.personaHetDraw1],
         ),
       ),
       Persona(
@@ -155,15 +156,15 @@ List<Persona> buildPersonas(AppLocalizations l10n) => [
         defense: 3,
         trick: 5,
         style: AiStyle.jenna,
-        lines: const PersonaLines(
-          greeting: ['승률 계산이 끝났습니다. 시작하죠.', '데이터는 거짓말을 하지 않아요.'],
-          removeMine: ['변수 하나를 제거했습니다.', '그 카드의 기대값이 가장 높더군요.'],
-          removed: ['…예측 범위 밖의 수네요.', '모델을 갱신하겠습니다.'],
-          joker: ['조커 투입 — 최적 타이밍입니다.'],
-          shieldTrick: ['그 줄, 제가 조금 손봤습니다.', '작은 변수를 심어뒀어요.'],
-          winGame: ['계산대로입니다.', '이 결과, 예측 구간 안이었어요.'],
-          loseGame: ['오차 범위… 밖이군요. 흥미롭네요.', '데이터를 더 모아야겠어요.'],
-          drawGame: ['정확히 50 대 50. 아름답네요.'],
+        lines: PersonaLines(
+          greeting: [l10n.personaJennaGreeting1, l10n.personaJennaGreeting2],
+          removeMine: [l10n.personaJennaRemoveMine1, l10n.personaJennaRemoveMine2],
+          removed: [l10n.personaJennaRemoved1, l10n.personaJennaRemoved2],
+          joker: [l10n.personaJennaJoker1],
+          shieldTrick: [l10n.personaJennaShield1, l10n.personaJennaShield2],
+          winGame: [l10n.personaJennaWin1, l10n.personaJennaWin2],
+          loseGame: [l10n.personaJennaLose1, l10n.personaJennaLose2],
+          drawGame: [l10n.personaJennaDraw1],
         ),
       ),
     ];
