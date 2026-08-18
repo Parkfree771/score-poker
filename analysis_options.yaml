@@ -1,0 +1,10 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    - "lib/l10n/app_localizations*.dart" # 생성 파일 제외
+
+linter:
+  rules:
+    prefer_single_quotes: true
+    prefer_const_constructors: true
