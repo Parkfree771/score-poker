@@ -4,7 +4,9 @@
 build/
 .flutter-plugins
 .flutter-plugins-dependencies
-pubspec.lock
+
+# pubspec.lock은 커밋한다 — 앱은 라이브러리와 달리 의존성 버전을 고정해야
+# 스토어에 올린 빌드를 나중에 그대로 재현할 수 있다(결제 SDK가 들어가면 특히).
 
 # gen-l10n 생성물
 lib/l10n/app_localizations*.dart
