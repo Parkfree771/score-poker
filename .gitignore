@@ -17,3 +17,6 @@ lib/l10n/app_localizations*.dart
 # OS
 .DS_Store
 Thumbs.db
+
+# 골든 실패 시 생성되는 diff 이미지 — 실행할 때마다 바뀌는 노이즈다
+test/failures/
