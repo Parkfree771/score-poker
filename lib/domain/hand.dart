@@ -42,7 +42,7 @@ class HandResult implements Comparable<HandResult> {
 /// - 5장이 필요한 족보(스트레이트/플러쉬/풀하우스/포카드/스트레이트 플러쉬/파이브카드)는
 ///   정확히 5장이 모두 채워졌을 때만 성립. 그 외(1~4장)에서는 페어/투페어/트리플/하이카드만 인정.
 /// - 조커는 배치 시 이미 rank/suit가 지정되므로 일반 카드처럼 다룬다.
-/// - A(14)는 스트레이트에서 0으로도 사용 가능. 점수 합산에는 항상 14로 계산.
+/// - A(14)는 스트레이트에서 1로도 사용 가능(A-2-3-4-5). 점수 합산에는 항상 14로 계산.
 HandResult evaluateHand(List<PlayingCard> cards) {
   assert(cards.length <= 5);
   if (cards.isEmpty) return const HandResult(HandCategory.highCard, 0);
@@ -101,12 +101,12 @@ int _tiebreakScore(List<PlayingCard> cards, Map<int, int> counts) {
   return total;
 }
 
-/// 5개의 서로 다른 랭크가 연속인지. A(14)는 14 또는 0으로 시도.
+/// 5개의 서로 다른 랭크가 연속인지. A(14)는 14 또는 1로 시도(A-2-3-4-5).
 bool _isStraight(List<int> ranks) {
   if (ranks.length != 5) return false; // 중복 랭크가 있으면 스트레이트 불가
   if (_consecutive(List.of(ranks))) return true;
   if (ranks.contains(Ranks.ace)) {
-    final low = ranks.map((r) => r == Ranks.ace ? 0 : r).toList();
+    final low = ranks.map((r) => r == Ranks.ace ? 1 : r).toList();
     if (low.toSet().length == 5 && _consecutive(low)) return true;
   }
   return false;

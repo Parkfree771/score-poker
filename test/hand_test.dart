@@ -73,24 +73,24 @@ void main() {
       expect(h.category, HandCategory.straight);
     });
 
-    test('스트레이트 (A를 0으로: A-1-2-3-4)', () {
-      final h = evaluateHand([
-        c(Ranks.ace, Suit.clubs),
-        c(1, Suit.hearts),
-        c(2, Suit.spades),
-        c(3, Suit.diamonds),
-        c(4, Suit.clubs),
-      ]);
-      expect(h.category, HandCategory.straight);
-    });
-
-    test('A-2-3-4-5 는 스트레이트 아님 (1이 없으므로)', () {
+    test('스트레이트 (A를 1로: A-2-3-4-5, 휠)', () {
       final h = evaluateHand([
         c(Ranks.ace, Suit.clubs),
         c(2, Suit.hearts),
         c(3, Suit.spades),
         c(4, Suit.diamonds),
         c(5, Suit.clubs),
+      ]);
+      expect(h.category, HandCategory.straight);
+    });
+
+    test('A-3-4-5-6 은 스트레이트 아님 (2가 빠짐)', () {
+      final h = evaluateHand([
+        c(Ranks.ace, Suit.clubs),
+        c(3, Suit.hearts),
+        c(4, Suit.spades),
+        c(5, Suit.diamonds),
+        c(6, Suit.clubs),
       ]);
       expect(h.category, isNot(HandCategory.straight));
     });

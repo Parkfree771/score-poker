@@ -185,7 +185,7 @@ class _DeckSample extends StatelessWidget {
         runSpacing: 10,
         alignment: WrapAlignment.center,
         children: [
-          CardFace(card: PlayingCard(1, Suit.spades), size: 46),
+          CardFace(card: PlayingCard(2, Suit.spades), size: 46),
           CardFace(card: PlayingCard(10, Suit.hearts), size: 46),
           CardFace(card: PlayingCard(11, Suit.diamonds), size: 46),
           CardFace(card: PlayingCard(14, Suit.clubs), size: 46),

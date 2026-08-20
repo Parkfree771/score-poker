@@ -2,7 +2,7 @@ import 'dart:math';
 
 import 'card.dart';
 
-/// 58장 덱: 14랭크 × 4슈트(56장) + 조커 2장.
+/// 54장 덱(표준 포커 + 조커): 13랭크 × 4슈트(52장) + 조커 2장.
 class Deck {
   Deck(this._cards);
 
@@ -11,7 +11,7 @@ class Deck {
   int get remaining => _cards.length;
   bool get isEmpty => _cards.isEmpty;
 
-  /// 표준 58장 덱을 생성한다(셔플 전). 조커는 미지정 상태로 2장 포함.
+  /// 표준 54장 덱을 생성한다(셔플 전). 조커는 미지정 상태로 2장 포함.
   factory Deck.standard() {
     final cards = <PlayingCard>[];
     for (final suit in Suit.values) {

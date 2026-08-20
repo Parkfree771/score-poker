@@ -1,9 +1,9 @@
 /// 카드 도메인 모델 (순수 Dart, Flutter 의존성 없음 → `dart test`로 검증 가능).
 ///
-/// 덱 구성: 랭크 1~10, J(11), Q(12), K(13), A(14) × 4 슈트 + 조커 2장.
+/// 덱 구성: 표준 포커 덱 — 랭크 2~10, J(11), Q(12), K(13), A(14) × 4 슈트 + 조커 2장.
 /// - **공격 카드**: 게임 시작 시 받은 손패에만 [isAttacker] 표식이 붙는다. 상대 카드를
 ///   빼앗는 공격은 이 카드(또는 조커)로만 가능하다 → 공격 횟수가 자연히 제한된다.
-/// - 숫자 "1" 카드와 A(에이스)는 별개. A의 기본값은 14, 스트레이트에서 0으로도 사용.
+/// - A(에이스)의 기본값은 14, 스트레이트에서만 1로도 사용(A-2-3-4-5).
 /// - 조커는 배치 시 원하는 숫자(rank)와 슈트를 지정하므로, 지정 후에는 일반 카드처럼 점수 계산됨.
 library;
 
@@ -30,15 +30,15 @@ extension SuitX on Suit {
 /// 랭크 상수. (랭크 == 점수값. A=14가 기본값)
 class Ranks {
   Ranks._();
-  static const int min = 1; // "1" 카드
+  static const int min = 2; // 표준 덱 최저 랭크 (A-low 스트레이트에서만 A가 1로 계산됨)
   static const int jack = 11;
   static const int queen = 12;
   static const int king = 13;
-  static const int ace = 14; // 기본값 14, 스트레이트에서 0으로도 사용
+  static const int ace = 14; // 기본값 14, 스트레이트에서만 1로도 사용
   static const int max = ace;
 
-  /// 일반 덱에 들어가는 모든 랭크 (1..10, J, Q, K, A).
-  static const List<int> all = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, jack, queen, king, ace];
+  /// 일반 덱에 들어가는 모든 랭크 (2..10, J, Q, K, A) — 13랭크.
+  static const List<int> all = [2, 3, 4, 5, 6, 7, 8, 9, 10, jack, queen, king, ace];
 }
 
 /// 한 장의 카드.

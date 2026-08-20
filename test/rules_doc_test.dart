@@ -10,24 +10,24 @@ void main() {
   PlayingCard c(int rank, [Suit s = Suit.clubs]) => PlayingCard(rank, s);
 
   group('RULES.md §2.1 덱 구성', () {
-    test('58장 = 14랭크 × 4슈트 + 조커 2', () {
+    test('54장 = 13랭크 × 4슈트 + 조커 2', () {
       final deck = Deck.standard();
-      expect(deck.remaining, 58);
-      final all = deck.draw(58);
+      expect(deck.remaining, 54);
+      final all = deck.draw(54);
       expect(all.where((x) => x.isJoker).length, 2);
-      expect(all.where((x) => !x.isJoker).length, 56);
+      expect(all.where((x) => !x.isJoker).length, 52);
     });
 
     test('모든 랭크가 정확히 4장씩', () {
-      final all = Deck.standard().draw(58).where((x) => !x.isJoker);
+      final all = Deck.standard().draw(54).where((x) => !x.isJoker);
       for (final rank in Ranks.all) {
         expect(all.where((x) => x.rank == rank).length, 4, reason: 'rank $rank');
       }
-      expect(Ranks.all.length, 14);
+      expect(Ranks.all.length, 13);
     });
 
-    test('숫자값: 1~10 그대로, J=11 Q=12 K=13 A=14', () {
-      expect(c(1).value, 1);
+    test('숫자값: 2~10 그대로, J=11 Q=12 K=13 A=14', () {
+      expect(c(2).value, 2);
       expect(c(10).value, 10);
       expect(c(Ranks.jack).value, 11);
       expect(c(Ranks.queen).value, 12);
@@ -92,10 +92,10 @@ void main() {
   });
 
   group('RULES.md §8.2 족보 성립 조건', () {
-    test('스트레이트: 1 2 3 4 5 / A 1 2 3 4 / 10 J Q K A 모두 성립', () {
+    test('스트레이트: 2 3 4 5 6 / A 2 3 4 5 / 10 J Q K A 모두 성립', () {
       for (final ranks in [
-        [1, 2, 3, 4, 5],
-        [Ranks.ace, 1, 2, 3, 4],
+        [2, 3, 4, 5, 6],
+        [Ranks.ace, 2, 3, 4, 5],
         [10, Ranks.jack, Ranks.queen, Ranks.king, Ranks.ace],
       ]) {
         final line = [
