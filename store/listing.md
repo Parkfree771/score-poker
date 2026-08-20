@@ -11,7 +11,7 @@
 | 패키지/번들 ID | `com.scorepoker.app` |
 | 카테고리 | 게임 > 카드 |
 | 콘텐츠 등급 | 전체이용가 (사행성 없음 — 베팅·현금화 요소 없음) |
-| 개인정보처리방침 URL | (store/privacy.html 호스팅 후 기입) |
+| 개인정보처리방침 URL | https://parkfree771.github.io/score-poker/privacy.html |
 | 인앱 상품 | `token_set_20` ₩4,990 / `token_shield_10` ₩3,300 / `token_attack_10` ₩3,300 — 전부 **소비성** |
 
 ## 한국어
