@@ -1,7 +1,7 @@
 name: score_poker
 description: "포커 스타일 점수 배틀 카드 게임 (Android & iOS). 베팅 없음."
 publish_to: 'none'
-version: 0.1.0+1
+version: 1.0.0+1
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
@@ -17,6 +17,8 @@ dependencies:
   lottie: ^3.5.1
   # 인앱 결제(소비성 토큰). 안드로이드/iOS에서만 동작 — 웹·데스크톱은 StubPurchaseService.
   in_app_purchase: ^3.2.0
+  # 효과음(assets/sfx — tool/gen_sfx.py로 자체 합성). 실패해도 게임엔 영향 없음.
+  audioplayers: ^6.1.0
   in_app_purchase_android: ^0.4.0
 
 dev_dependencies:
@@ -30,6 +32,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/lottie/
+    - assets/sfx/
   fonts:
     - family: AlfaSlabOne
       fonts:

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'dart:math';
 
+import '../audio/sfx.dart';
 import '../data/records_store.dart';
 import '../domain/ai_strategy.dart';
 import '../domain/card.dart';
@@ -144,6 +145,28 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     Future<void>.delayed(const Duration(milliseconds: 3200), () {
       if (mounted && seq == _speechSeq) setState(() => _oppSpeech = null);
     });
+  }
+
+  /// 효과음 재생. 스코프가 없는 환경(위젯 테스트·스크린샷)에서는 조용히 무시된다.
+  void _playSfx(Sfx sfx) {
+    if (!mounted) return;
+    context.getInheritedWidgetOfExactType<SfxScope>()?.notifier?.play(sfx);
+  }
+
+  /// 결과 효과음 재생 여부(판당 1회).
+  bool _resultSoundDone = false;
+
+  void _maybePlayResultSound() {
+    if (!state.isFinished || _resultSoundDone) return;
+    _resultSoundDone = true;
+    switch (state.result(me).outcome) {
+      case MatchOutcome.win:
+        _playSfx(Sfx.win);
+      case MatchOutcome.lose:
+        _playSfx(Sfx.lose);
+      case MatchOutcome.draw:
+        break; // 무승부는 소리 없이
+    }
   }
 
   /// 결과 기록 여부(판당 1회).
@@ -829,6 +852,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     final victim = state.fields[owner]![row][col]?.card;
     if (from == null || cellRect == null || victim == null) {
       state.attack(handIndex, row, col, dest.row, dest.col);
+      _playSfx(Sfx.attack);
       _grave.add(weapon);
       setState(() => selected = null);
       await _afterMyAction();
@@ -850,6 +874,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     if (!mounted) return;
     // 2) 규칙 반영 — 상대 칸이 비고, 그 카드가 내 칸에 쉴드로 박힌다.
     state.attack(handIndex, row, col, dest.row, dest.col);
+    _playSfx(Sfx.attack);
     setState(() => _flyingHandIndex = null);
     // 3) 맞은 카드가 튕긴 뒤 내 칸으로 날아온다.
     await poofCard(
@@ -918,6 +943,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     final to = _rectFor(_boardKey(targetOwner, row, col));
     if (from == null || to == null) {
       commit();
+      _playSfx(Sfx.cardPlace);
       setState(() => selected = null);
       return;
     }
@@ -928,6 +954,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     await flyCard(overlay: Overlay.of(context), vsync: this, from: from, to: to, card: displayCard);
     if (!mounted) return;
     commit();
+    _playSfx(Sfx.cardPlace);
     setState(() {
       _animating = false;
       _flyingHandIndex = null;
@@ -950,6 +977,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     }
     if (mounted) {
       setState(() => _animating = false);
+      _maybePlayResultSound();
       _maybeRecordResult();
     }
   }
@@ -990,9 +1018,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           }
           if (card.isJoker) {
             state.placeCard(handIndex, ai, row, col, jokerRank: jokerRank, jokerSuit: jokerSuit);
+            _playSfx(Sfx.cardPlace);
             if (lines != null) _personaSay(lines.joker);
           } else {
             state.placeCard(handIndex, target, row, col);
+            _playSfx(Sfx.cardPlace);
             // 변칙: 내 필드에 쉴드를 꽂았을 때
             if (card.isShield && target == me && lines != null) {
               _personaSay(lines.shieldTrick);
@@ -1017,6 +1047,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             if (!mounted) return false;
           }
           state.attack(handIndex, row, col, myRow, myCol);
+          _playSfx(Sfx.attack);
           if (victim != null && cellRect != null && mounted) {
             await poofCard(
                 overlay: Overlay.of(context),
@@ -1103,6 +1134,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       return;
     }
     await m.wallet.spend(kind);
+    _playSfx(kind == TokenKind.shield ? Sfx.shield : Sfx.token);
     if (!mounted) return;
     setState(() => _tokenMode = null);
     _snack(kind == TokenKind.shield ? l10n.tokenShieldDone : l10n.tokenAttackDone);

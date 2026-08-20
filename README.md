@@ -13,12 +13,16 @@ Android + iOS 동시 출시 예정 (Flutter), 한국어/영어 지원.
 - [x] 순수 Dart 도메인 로직: 카드/덱/족보 판정/줄·매치 점수 계산
 - [x] **게임 규칙 엔진 v2**(`domain/game.dart`): 셋업·선공·**매 턴 보충**·배치·**공격(빼앗기)**·
       **보너스 배치**·쉴드·조커·폴드·종료·정산
-- [x] 단위 테스트 **42개 전부 통과**, `flutter analyze` 이슈 0
+- [x] 단위 테스트 **193개 전부 통과**, `flutter analyze` 이슈 0
 - [x] 앱 셸(홈 화면, 모드 선택)
 - [x] **게임 보드/플레이 화면** (세로·가로 둘 다, 각 라인 상대줄/내줄 맞댐, 실시간 승패표시, 손패/배치/제거/쉴드/조커/폴드/결과)
 - [x] web 지원 — 브라우저로 바로 실행 가능
-- [ ] 싱글 AI (난이도 하/중/상)
-- [ ] 온라인 매칭 + 랭킹 (백엔드/DB)
+- [x] 싱글 AI (페르소나 3종 — 수비/중간/공격 기풍, `domain/ai_strategy.dart`)
+- [x] 인앱 결제(토큰) · 상점 · 지갑 — `docs/MONETIZATION.md`
+- [x] **표준 54장 덱 전환**(2026-08-20) + 밸런스 실측 도구 `tool/balance_sim.dart`
+- [x] 효과음 6종(자체 합성, `tool/gen_sfx.py`) + 설정 토글
+- [x] 출시 준비: 앱 아이콘(`tool/gen_app_icons_test.dart`) · 릴리스 서명 · v1.0.0 · 개인정보처리방침(`store/privacy.html`)
+- [ ] 온라인 매칭 + 랭킹 (백엔드/DB — 설계는 `docs/PVP_SERVER.md`)
 
 > **규칙 v2 요약** — 매 턴 손패 5장 보충 / 공격은 **처음 받은 5장(+조커)** 으로만 /
 > 공격은 상대 카드를 **빼앗아 내 칸에 쉴드로** 박고 **배치를 한 번 더** 준다.
@@ -32,7 +36,7 @@ lib/
   l10n/                # 한/영 번역 (app_en.arb=템플릿, app_ko.arb)
   domain/              # 순수 Dart 게임 로직 (Flutter 의존성 없음)
     card.dart          # Suit/Rank/PlayingCard, 덱 구성 정의
-    deck.dart          # 58장 덱 생성/셔플/드로우
+    deck.dart          # 54장 덱(표준 포커+조커 2) 생성/셔플/드로우
     hand.dart          # 포커 족보 판정 + 줄 숫자값(보너스) 계산
     scoring.dart       # 줄 비교 + 3줄 매치 승패 판정
   ui/
@@ -43,7 +47,7 @@ docs/GAME_DESIGN.md    # 게임 기획 문서 (규칙 원본)
 
 ## 셋업 / 실행 (개발 환경)
 
-> Flutter 3.44.4 / Dart 3.12.2 에서 빌드·테스트 검증됨. (web 빌드 OK, 테스트 46개 통과)
+> Flutter 3.47.0 에서 빌드·테스트 검증됨. (web/AAB 빌드 OK, 테스트 193개 통과)
 
 **브라우저로 바로 실행 (가장 쉬움, Android SDK 불필요):**
 ```
@@ -53,7 +57,7 @@ flutter run -d chrome
 
 **로직/위젯 테스트:**
 ```
-flutter test          # 도메인+엔진+위젯 46개
+flutter test          # 도메인+엔진+위젯+골든 193개
 flutter analyze
 ```
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../audio/sfx.dart';
 import '../data/app_settings.dart';
 import '../l10n/app_localizations.dart';
 import 'how_to_play_screen.dart';
@@ -25,9 +26,9 @@ class LanguageOption {
   ];
 }
 
-/// 설정: 언어 선택 + 앱 정보.
+/// 설정: 언어 선택 + 효과음 + 앱 정보.
 class SettingsScreen extends StatelessWidget {
-  const SettingsScreen({super.key, this.version = '0.1.0'});
+  const SettingsScreen({super.key, this.version = '1.0.0'});
 
   final String version;
 
@@ -65,6 +66,7 @@ class SettingsScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 24),
+                  ..._soundSection(context, l10n),
                   _SectionLabel(l10n.howToPlayTitle),
                   const SizedBox(height: 8),
                   _Panel(
@@ -127,6 +129,30 @@ class SettingsScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// 효과음 on/off. 스코프가 없는 환경(위젯 테스트·스크린샷)에서는 섹션째 숨긴다.
+  List<Widget> _soundSection(BuildContext context, AppLocalizations l10n) {
+    final sfx = SfxScope.maybeOf(context);
+    if (sfx == null) return const [];
+    return [
+      _SectionLabel(l10n.soundSectionTitle),
+      const SizedBox(height: 8),
+      _Panel(
+        child: SwitchListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
+          activeThumbColor: AppColors.gold,
+          title: Text(l10n.soundEffectsTitle,
+              style:
+                  const TextStyle(color: AppColors.textMain, fontWeight: FontWeight.w600)),
+          subtitle: Text(l10n.soundEffectsDesc,
+              style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
+          value: sfx.enabled,
+          onChanged: (v) => sfx.setEnabled(v),
+        ),
+      ),
+      const SizedBox(height: 24),
+    ];
   }
 
   Future<void> _select(BuildContext context, Locale? locale) async {

@@ -497,5 +497,11 @@
   "rulesTokenTitle": "Tokens (optional)",
   "@rulesTokenTitle": {},
   "rulesTokenBody": "If you own tokens you can spend them on your turn. A shield token turns one of your cards into a shield; an attack token marks one card in your hand as an attacker. Neither uses up your turn, and you may spend at most one of each per match.",
-  "@rulesTokenBody": {}
+  "@rulesTokenBody": {},
+  "soundSectionTitle": "Sound",
+  "@soundSectionTitle": {},
+  "soundEffectsTitle": "Sound effects",
+  "@soundEffectsTitle": {},
+  "soundEffectsDesc": "Card, battle, and result sounds",
+  "@soundEffectsDesc": {}
 }
