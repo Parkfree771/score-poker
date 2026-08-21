@@ -17,15 +17,16 @@ dependencies:
   lottie: ^3.5.1
   # 인앱 결제(소비성 토큰). 안드로이드/iOS에서만 동작 — 웹·데스크톱은 StubPurchaseService.
   in_app_purchase: ^3.2.0
-  # 효과음(assets/sfx — tool/gen_sfx.py로 자체 합성). 실패해도 게임엔 영향 없음.
+  # 효과음(assets/sfx — 실사는 tool/import_sfx.py, 합성은 tool/gen_sfx.py). 실패해도 게임엔 영향 없음.
   audioplayers: ^6.1.0
+  # 햅틱 — Android 진폭 제어 진동(VibrationEffect). iOS는 표준 HapticFeedback(Taptic)을 쓴다.
+  vibration: ^3.1.3
   in_app_purchase_android: ^0.4.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
-
 flutter:
   # gen-l10n: lib/l10n/*.arb -> AppLocalizations 생성
   generate: true

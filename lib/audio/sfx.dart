@@ -1,21 +1,40 @@
+import 'dart:async';
+import 'dart:math';
+
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// 게임 효과음. 음원은 `assets/sfx/*.wav` — 전부 `tool/gen_sfx.py`로 합성한
-/// 자체 제작이라 라이선스 문제가 없다.
+/// 게임 효과음.
+///
+/// 카드 소리는 실제 녹음(Kenney Casino Audio, CC0 — `tool/import_sfx.py`),
+/// 나머지는 `tool/gen_sfx.py`로 합성한 자체 제작이라 라이선스 문제가 없다.
+///
+/// [variants]가 2 이상이면 파일이 `<이름>_1..N.wav`로 여러 개 있고, 재생할 때마다
+/// 무작위로 하나를 고른다. [jitter]는 재생 속도를 ±6% 흔든다 — 같은 소리의 반복은
+/// 몇 번만 들어도 "게임 소리"처럼 들리는데, 샘플·피치 변형 두 가지가 그걸 없앤다.
 enum Sfx {
-  cardPlace('card_place'),
-  attack('attack'),
+  cardPlace('card_place', variants: 4, jitter: true),
+  cardSlide('card_slide', variants: 4, jitter: true),
+  deal('deal'),
+  shuffle('shuffle'),
+  attackHit('attack_hit', variants: 2, jitter: true),
+
+  /// "두-둥" — 동시 공개·판정 세리머니의 예고 스팅.
+  sting('sting'),
   shield('shield'),
   token('token'),
   win('win'),
   lose('lose');
 
-  const Sfx(this.fileName);
-  final String fileName;
+  const Sfx(this.baseName, {this.variants = 1, this.jitter = false});
+  final String baseName;
+  final int variants;
+  final bool jitter;
 
-  String get assetPath => 'sfx/$fileName.wav'; // AssetSource 기준(assets/ 접두 자동)
+  /// AssetSource 기준(assets/ 접두 자동).
+  String assetPath(int variant) =>
+      variants == 1 ? 'sfx/$baseName.wav' : 'sfx/${baseName}_${variant + 1}.wav';
 }
 
 /// 효과음 재생기.
@@ -30,7 +49,10 @@ class SfxService extends ChangeNotifier {
 
   static const _kEnabled = 'settings.sfx.v1';
 
-  final Map<Sfx, AudioPlayer> _players = {};
+  /// (소리, 변형) → 미리 로드된 플레이어. **재생 시점 로드는 소리가 늦게 난다** —
+  /// 특히 웹은 매번 네트워크 fetch가 끼어 카드 안착보다 "탁"이 늦었다.
+  final Map<(Sfx, int), AudioPlayer> _players = {};
+  final Random _rng = Random();
   bool _enabled = true;
   bool get enabled => _enabled;
 
@@ -42,6 +64,32 @@ class SfxService extends ChangeNotifier {
     } on Object {
       // 저장소를 못 읽어도 기본값(켜짐)으로 동작한다.
     }
+    _preloadAll();
+  }
+
+  /// 모든 음원을 미리 로드한다. 실패한 파일은 재생 시점에 다시 시도된다.
+  void _preloadAll() {
+    // guarded zone: AudioPlayer 생성자 **내부의** 비동기 채널 오류(플러그인 없는
+    // 테스트 환경 등)는 밖에서 catch할 수 없고 엉뚱한 곳에 unhandled로 떨어진다.
+    // 소리는 부가 기능 — 초기화 실패는 어디서 왔든 조용히 삼킨다.
+    runZonedGuarded(() {
+      for (final sfx in Sfx.values) {
+        for (var v = 0; v < sfx.variants; v++) {
+          _player(sfx, v);
+        }
+      }
+    }, (_, __) {});
+  }
+
+  AudioPlayer _player(Sfx sfx, int variant) {
+    return _players.putIfAbsent((sfx, variant), () {
+      final p = AudioPlayer();
+      p.setPlayerMode(PlayerMode.lowLatency).catchError((Object _) {});
+      // stop() 후에도 소스를 놓지 않는다(기본 release는 다음 재생 때 다시 로드한다).
+      p.setReleaseMode(ReleaseMode.stop).catchError((Object _) {});
+      p.setSource(AssetSource(sfx.assetPath(variant))).catchError((Object _) {});
+      return p;
+    });
   }
 
   Future<void> setEnabled(bool value) async {
@@ -64,13 +112,21 @@ class SfxService extends ChangeNotifier {
   }
 
   Future<void> _play(Sfx sfx) async {
-    final p = _players.putIfAbsent(sfx, () {
-      final player = AudioPlayer();
-      player.setPlayerMode(PlayerMode.lowLatency).catchError((Object _) {});
-      return player;
-    });
-    await p.stop(); // 겹치면 재시작
-    await p.play(AssetSource(sfx.assetPath));
+    final p = _player(sfx, _rng.nextInt(sfx.variants));
+    await p.stop(); // 겹치면 재시작 (ReleaseMode.stop이라 소스는 유지된다)
+    if (sfx.jitter) {
+      // 미지원 플랫폼에서 실패해도 원속으로 재생되면 그만이다.
+      await p
+          .setPlaybackRate(0.94 + _rng.nextDouble() * 0.12)
+          .catchError((Object _) {});
+    }
+    // 소스가 이미 물려 있으므로 resume이 즉시 난다. 프리로드가 실패했던
+    // 파일이면 여기서 다시 세팅된다.
+    try {
+      await p.resume();
+    } on Object {
+      await p.play(AssetSource(sfx.assetPath(_rng.nextInt(sfx.variants))));
+    }
   }
 
   @override

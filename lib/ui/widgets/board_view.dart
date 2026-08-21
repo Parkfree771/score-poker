@@ -4,8 +4,17 @@ import '../../domain/card.dart';
 import '../../domain/game.dart';
 import '../../domain/scoring.dart';
 import '../theme.dart';
+import 'card_back.dart';
 import 'card_face.dart';
 import 'table_decor.dart';
+
+/// 보드 칸의 표시 방식.
+///
+/// 기본 게임은 전부 [face]. 가림 룰은 상대의 미공개 카드를 [back](뒷면)으로,
+/// 그중 지금 코인으로 열어볼 수 있는 카드를 [backPeekable](뒷면 + 골드 코인 마커)로,
+/// 나의 미공개 카드를 [peek](뒷면 + 들린 모서리로 나만 확인)으로,
+/// 숨김 지정된 내 카드를 [sealed](peek + 브라스 봉인 도장)로 그린다.
+enum CellLook { face, back, backPeekable, peek, sealed }
 
 /// 게임 보드 — 방향 인식형.
 ///
@@ -19,18 +28,34 @@ import 'table_decor.dart';
 class BoardView extends StatelessWidget {
   const BoardView({
     super.key,
-    required this.state,
+    required this.cellAt,
     required this.viewer,
     required this.onCellTap,
     this.isHighlighted,
+    this.isConcealed,
+    this.lookOf,
+    this.lineCardsOf,
     this.cellKeyFor,
     this.landscape = false,
   });
 
-  final GameState state;
+  /// 칸의 카드. 보드는 규칙 엔진을 모른다 — 기본 게임(GameState)과 가림 룰이
+  /// 같은 보드를 쓰기 위한 유일한 접점이다.
+  final PlacedCard? Function(PlayerId owner, int row, int col) cellAt;
   final PlayerId viewer;
   final void Function(PlayerId owner, int row, int col) onCellTap;
   final bool Function(PlayerId owner, int row, int col)? isHighlighted;
+
+  /// 연출용 숨김: true인 칸은 카드가 있어도 빈 슬롯으로 그린다.
+  /// (빼앗은 카드가 날아와 **안착하는 순간**에만 나타나야 두 장으로 안 보인다)
+  final bool Function(PlayerId owner, int row, int col)? isConcealed;
+
+  /// 칸 표시 방식(기본 [CellLook.face]).
+  final CellLook Function(PlayerId owner, int row, int col)? lookOf;
+
+  /// 점수 알약에 넣을 카드 목록. 가림 룰은 **공개된 카드만** 넘겨서
+  /// 숨긴 정보가 점수로 새지 않게 한다. 기본은 칸 전체.
+  final List<PlayingCard> Function(PlayerId p, int line)? lineCardsOf;
   final GlobalKey Function(PlayerId owner, int row, int col)? cellKeyFor;
   final bool landscape;
 
@@ -64,20 +89,26 @@ class BoardView extends StatelessWidget {
   // ---- 공통 ----
 
   List<PlayingCard> _cards(PlayerId p, int line) =>
-      [for (final c in state.fields[p]![line]) if (c != null) c.card];
+      lineCardsOf?.call(p, line) ??
+      [
+        for (var col = 0; col < kCols; col++)
+          if (cellAt(p, line, col) case final c?) c.card,
+      ];
 
   /// 다음에 카드가 놓일 칸(가운데부터 채움). 꽉 찼으면 -1.
   int _nextCol(PlayerId p, int row) {
     for (var col = 0; col < kCols; col++) {
-      if (state.fields[p]![row][col] == null) return col;
+      if (cellAt(p, row, col) == null) return col;
     }
     return -1;
   }
 
   Widget _slot(PlayerId owner, int row, int col, {required double ratio}) {
+    final concealed = isConcealed?.call(owner, row, col) ?? false;
     return _BoardSlot(
       key: cellKeyFor?.call(owner, row, col),
-      placed: state.fields[owner]![row][col],
+      placed: concealed ? null : cellAt(owner, row, col),
+      look: lookOf?.call(owner, row, col) ?? CellLook.face,
       size: _cell,
       ratio: ratio,
       mine: owner == viewer,
@@ -237,9 +268,11 @@ class _BoardSlot extends StatelessWidget {
     required this.isNext,
     required this.highlighted,
     required this.onTap,
+    this.look = CellLook.face,
   });
 
   final PlacedCard? placed;
+  final CellLook look;
   final double size;
   final double ratio;
   final bool mine;
@@ -276,12 +309,57 @@ class _BoardSlot extends StatelessWidget {
         ],
       );
     } else {
-      final card = FittedBox(
-        fit: BoxFit.fill, // 원비율 카드를 칸 비율로 살짝 스트레치(세로 공간 확보)
-        child: SizedBox(
-          width: size,
-          height: CardFace.heightFor(size),
-          child: cachedCardFace(placed!.card, size),
+      final content = switch (look) {
+        CellLook.face => cachedCardFace(placed!.card, size),
+        CellLook.back => cachedCardBack(size),
+        CellLook.backPeekable => Stack(
+            fit: StackFit.expand,
+            children: [
+              cachedCardBack(size),
+              // "여기에 코인을 쓸 수 있다" — 우상단 골드 코인. 솔리드(희미 금지).
+              Positioned(
+                right: size * 0.06,
+                top: size * 0.06,
+                child: VeilCoin(size: size * 0.34, filled: true),
+              ),
+            ],
+          ),
+        CellLook.peek => PeekCardBack(card: placed!.card, size: size),
+        CellLook.sealed => Stack(
+            fit: StackFit.expand,
+            children: [
+              PeekCardBack(card: placed!.card, size: size),
+              _SealStamp(size: size),
+            ],
+          ),
+      };
+      // 표시 방식이 바뀔 때(뒷면→앞면 공개 등) 가로로 눌렸다 펴지는 플립.
+      // 칸이 비어 있다 처음 채워질 때는 스위처가 새로 만들어져 애니메이션이 없다
+      // (기존 게임의 배치 연출·골든에 영향을 주지 않는다).
+      // peek↔sealed(봉인 지정/해제)는 카드가 뒤집히는 게 아니므로 플립 없이
+      // 도장 자체의 등장 연출만 쓴다 — 키를 "앞면인가"로만 나눈 이유.
+      final card = AnimatedSwitcher(
+        duration: const Duration(milliseconds: 240),
+        transitionBuilder: (child, anim) => AnimatedBuilder(
+          animation: anim,
+          builder: (context, _) => Transform(
+            alignment: Alignment.center,
+            transform: Matrix4.diagonal3Values(anim.value.clamp(0.0, 1.0), 1, 1),
+            child: child,
+          ),
+        ),
+        layoutBuilder: (current, previous) => Stack(
+          fit: StackFit.expand,
+          children: [...previous, if (current != null) current],
+        ),
+        child: FittedBox(
+          key: ValueKey('${look == CellLook.face}-${placed!.card.label}'),
+          fit: BoxFit.fill, // 원비율 카드를 칸 비율로 살짝 스트레치(세로 공간 확보)
+          child: SizedBox(
+            width: size,
+            height: CardFace.heightFor(size),
+            child: content,
+          ),
         ),
       );
       inner = highlighted
@@ -310,6 +388,127 @@ class _BoardSlot extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
         child: SizedBox(width: w, height: h, child: inner),
+      ),
+    );
+  }
+}
+
+/// 비공개권 코인 — "숨기거나 열어볼 기회"의 물성 있는 표현.
+///
+/// [filled]면 브라스 코인(잉크 눈감김 각인), 아니면 **쓴 자리**(파인 소켓).
+/// 전부 불투명 단색 — 이 게임의 UI 원칙(반투명 금지)을 따른다.
+class VeilCoin extends StatelessWidget {
+  const VeilCoin({super.key, required this.size, required this.filled, this.ring});
+
+  final double size;
+  final bool filled;
+
+  /// 코인 가장자리 링 색(내/상대 구분). null이면 브라스.
+  final Color? ring;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 240),
+      transitionBuilder: (child, anim) =>
+          ScaleTransition(scale: anim, child: child),
+      child: filled
+          ? Container(
+              key: const ValueKey('coin'),
+              width: size,
+              height: size,
+              decoration: BoxDecoration(
+                color: AppColors.gold,
+                shape: BoxShape.circle,
+                border: Border.all(color: ring ?? AppColors.goldSoft, width: 2),
+                boxShadow: [
+                  BoxShadow(
+                      color: AppColors.ink.withValues(alpha: 0.45),
+                      blurRadius: 4,
+                      offset: const Offset(0, 1.5)),
+                ],
+              ),
+              child: Icon(Icons.visibility_off_rounded,
+                  color: AppColors.ink, size: size * 0.58),
+            )
+          : Container(
+              key: const ValueKey('socket'),
+              width: size,
+              height: size,
+              decoration: BoxDecoration(
+                color: AppColors.slotRecess,
+                shape: BoxShape.circle,
+                border: Border.all(color: AppColors.stroke, width: 1.6),
+              ),
+            ),
+    );
+  }
+}
+
+/// 봉인 도장 — 숨김 지정의 시각 언어.
+///
+/// 지정하는 순간 브라스 실링 도장이 **쿵 찍히고**(1.7배에서 오버슛으로 안착),
+/// 골드 테두리가 카드를 감싼다. "이 카드는 공개 때 덮인 채 남는다"를 도장 하나로
+/// 말한다. 해제하면 도장째 사라진다(스위처가 즉시 제거).
+class _SealStamp extends StatelessWidget {
+  const _SealStamp({required this.size});
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final d = size * 0.56; // 도장 지름
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeOutBack,
+      builder: (context, t, child) {
+        final scale = 1.7 - 0.7 * t; // 위에서 내려와 찍히는 느낌
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            // 카드를 감싸는 골드 링 + 글로우 (도장이 찍히며 함께 조여든다)
+            IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(size * 0.16),
+                  border: Border.all(
+                      color: AppColors.gold, width: 1.6 + 1.2 * t),
+                  boxShadow: [
+                    BoxShadow(
+                        color: AppColors.gold.withValues(alpha: 0.45 * t),
+                        blurRadius: 12),
+                  ],
+                ),
+              ),
+            ),
+            Center(
+              child: Opacity(
+                opacity: t.clamp(0.0, 1.0),
+                child: Transform.rotate(
+                  angle: -0.12 * (1 - t) - 0.06, // 살짝 비스듬히 찍힌 도장
+                  child: Transform.scale(scale: scale, child: child),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+      child: Container(
+        width: d,
+        height: d,
+        decoration: BoxDecoration(
+          color: AppColors.gold,
+          shape: BoxShape.circle,
+          border: Border.all(color: AppColors.goldSoft, width: 2),
+          boxShadow: [
+            BoxShadow(
+                color: AppColors.ink.withValues(alpha: 0.5),
+                blurRadius: 6,
+                offset: const Offset(0, 2)),
+          ],
+        ),
+        child: Icon(Icons.visibility_off_rounded,
+            color: AppColors.ink, size: d * 0.55),
       ),
     );
   }

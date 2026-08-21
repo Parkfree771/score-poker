@@ -434,6 +434,45 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
   });
 
+  // 공격(빼앗기) 연출 확인용: 돌진(잔상)→명중(플래시·파편·히트스톱)→녹아웃→강탈→
+  // 쉴드 글린트를 100ms 간격 14프레임으로 떠서 갤러리에서 돌려본다.
+  testWidgets('attack sequence frames', (tester) async {
+    await setScreen(tester, _portrait);
+    final s = _demoState();
+    // 상대 9♠(줄2)를 노리는 공격 표식 카드 + 배치용 필러.
+    s.hands[PlayerId.p0]!
+      ..clear()
+      ..addAll([
+        const PlayingCard(9, Suit.clubs, isAttacker: true),
+        const PlayingCard(5, Suit.clubs),
+      ]);
+    await tester.pumpWidget(_app(GameScreen(initialState: s)));
+    // 게임 화면은 턴 아바타가 계속 움직여 pumpAndSettle이 끝나지 않는다.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    // 보드 칸은 비공개 위젯이라 카드 앞면(CardFace)으로 찾아 탭한다 —
+    // 탭은 위의 GestureDetector(opaque)로 전달된다.
+    final myAttacker = find.byWidgetPredicate((w) =>
+        w is CardFace && w.card == const PlayingCard(9, Suit.clubs, isAttacker: true));
+    final target = find.byWidgetPredicate(
+        (w) => w is CardFace && w.card == const PlayingCard(9, Suit.spades));
+
+    await tester.tap(myAttacker);
+    await tester.pump();
+    await tester.tap(target);
+    for (var i = 0; i < 14; i++) {
+      // 연출은 앱 Overlay(화면 위 레이어)에 그려지므로 MaterialApp째 떠야 보인다.
+      await expectLater(
+          find.byType(MaterialApp), matchesGoldenFile('goldens/anim_attack_f$i.png'));
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    // 남은 연출·스낵바 타이머를 전부 소진한다(pumpAndSettle은 아바타 때문에 불가).
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(seconds: 1));
+    }
+  });
+
   // 로티 재생 확인용: 120ms 간격 10프레임을 떠서 갤러리에서 GIF처럼 돌려본다.
   testWidgets('persona select animation frames', (tester) async {
     await setScreen(tester, _portrait);

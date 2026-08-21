@@ -2,8 +2,10 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../audio/sfx.dart';
 import '../../domain/card.dart';
 import '../../domain/game.dart';
+import '../../feedback/haptics.dart';
 import '../../l10n/app_localizations.dart';
 import '../theme.dart';
 import 'card_face.dart';
@@ -55,6 +57,8 @@ class _OpeningSequenceState extends State<OpeningSequence> with TickerProviderSt
         if (s == AnimationStatus.completed && mounted) setState(() => _stage = _Stage.picking);
       })
       ..forward();
+    // 딜링과 함께 카드가 촤르륵 — 스코프가 없는 환경(테스트·스크린샷)에선 무음.
+    context.getInheritedWidgetOfExactType<SfxScope>()?.notifier?.play(Sfx.deal);
   }
 
   @override
@@ -65,6 +69,8 @@ class _OpeningSequenceState extends State<OpeningSequence> with TickerProviderSt
 
   Future<void> _pick(int i) async {
     if (_stage != _Stage.picking) return;
+    context.getInheritedWidgetOfExactType<SfxScope>()?.notifier?.play(Sfx.cardSlide);
+    context.getInheritedWidgetOfExactType<HapticScope>()?.notifier?.play(Haptic.select);
     setState(() {
       _myPick = i;
       _first = widget.decideFirst(widget.myHand[i], widget.oppHand[widget.oppPick]);

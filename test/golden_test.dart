@@ -56,7 +56,10 @@ void main() {
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
         backgroundColor: AppColors.bgBottom,
-        body: BoardView(state: g, viewer: PlayerId.p0, onCellTap: (_, __, ___) {}),
+        body: BoardView(
+            cellAt: (p, row, col) => g.fields[p]![row][col],
+            viewer: PlayerId.p0,
+            onCellTap: (_, __, ___) {}),
       ),
     ));
     await tester.pumpAndSettle();

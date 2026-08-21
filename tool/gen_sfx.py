@@ -53,24 +53,8 @@ def save(name, x):
         w.writeframes(b''.join(struct.pack('<h', int(max(-1, min(1, v)) * 32767)) for v in x))
     print('ok', name)
 
-# 1) 카드 배치: 나무 테이블 '톡' — 저역 썸프 + 필터드 노이즈 클릭
-n = int(SR * 0.14)
-thump = [s * e for s, e in zip(sine(150, n), env_exp(n, 0.02))]
-click = [s * e for s, e in zip(lowpass(noise(n), 0.35), env_exp(n, 0.008))]
-save('card_place', mix(gain(thump, 0.9), gain(click, 0.7)))
-
-# 2) 공격(빼앗기): 휙— 스윕 노이즈 + 끝의 스냅
-n = int(SR * 0.28)
-sweep = []
-for i in range(n):
-    t = i / n
-    f = 250 + 1400 * t  # 링모드용 상승 스윕
-    sweep.append(math.sin(2 * math.pi * f * i / SR))
-wh = [a * b for a, b in zip(lowpass(noise(n), 0.5), sweep)]
-whoosh = [v * math.sin(math.pi * min(1, i / (n * 0.85))) for i, v in enumerate(wh)]  # 업다운 엔벨로프
-snap_n = int(SR * 0.06)
-snap = [s * e for s, e in zip(lowpass(noise(snap_n), 0.6), env_exp(snap_n, 0.006))]
-save('attack', mix(gain(whoosh, 0.8), gain(delay(snap, 0.20), 1.0)))
+# 1~2) 카드 배치·비행·타격음은 전부 실사(tool/import_sfx.py, Kenney CC0)가 만든다.
+#      합성 whoosh는 8비트처럼 들려 폐기 — 돌진음도 실사 카드 슬라이드를 쓴다.
 
 # 3) 쉴드: 금속성 딩 — 비배음 파셜 3개
 n = int(SR * 0.5)
@@ -94,6 +78,17 @@ save('win', mix(
     pluck(523.25, 0.5, 0.7), delay(pluck(659.25, 0.5, 0.7), 0.12),
     delay(pluck(783.99, 0.5, 0.7), 0.24), delay(pluck(1046.5, 0.8, 0.85), 0.36),
 ))
+
+# 5.5) 공개 스팅: "두-둥" — 낮은 북 두 방. 카드 공개·대결 판정의 예고음.
+def drum(freq, dur, g, decay=0.09):
+    n = int(SR * dur)
+    out, ph = [], 0.0
+    for i in range(n):
+        f = freq * (1 + 0.6 * math.exp(-i / (SR * 0.015)))  # 피치가 툭 떨어지는 북
+        ph += 2 * math.pi * f / SR
+        out.append(math.sin(ph) * math.exp(-i / (SR * decay)))
+    return gain(out, g)
+save('sting', mix(drum(72, 0.35, 0.75), delay(drum(58, 0.7, 1.0, decay=0.16), 0.26)))
 
 # 6) 패배: 하강 두 음 (부드러운 웜프)
 def soft(freq, dur, g, slide=0.0):

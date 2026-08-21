@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'dart:async';
 import 'dart:math';
 
 import '../audio/sfx.dart';
@@ -10,6 +11,7 @@ import '../domain/game.dart';
 import '../domain/hand.dart';
 import '../domain/records.dart';
 import '../domain/scoring.dart';
+import '../feedback/haptics.dart';
 import '../l10n/app_localizations.dart';
 import '../monetization/monetization.dart';
 import 'hand_text.dart';
@@ -21,7 +23,9 @@ import 'widgets/board_view.dart';
 import 'widgets/card_back.dart';
 import 'widgets/card_cell.dart';
 import 'widgets/card_face.dart';
+import 'widgets/emote_bubble.dart';
 import 'widgets/flying_card.dart';
+import 'widgets/impact_effects.dart';
 import 'widgets/opening_sequence.dart';
 import 'widgets/table_decor.dart';
 
@@ -58,6 +62,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   // 애니메이션 상태
   bool _animating = false;
   int? _flyingHandIndex;
+
+  /// 빼앗기 연출 중 숨기는 칸 — 빼앗은 카드는 **날아와 안착하는 순간**에 나타나야 한다.
+  /// (규칙 반영은 명중 즉시라, 숨기지 않으면 비행 중에 목적지에 미리 보인다)
+  ({PlayerId owner, int row, int col})? _concealedCell;
   final Map<String, GlobalKey> _boardKeys = {};
 
   /// 손패 슬롯별 GlobalKey **풀**. 위치(index)마다 하나씩 재사용한다.
@@ -123,6 +131,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     selected = null;
     _tokenMode = null;
     _flyingHandIndex = null;
+    _concealedCell = null;
     _animating = false;
     _recorded = false;
     _grave.clear();
@@ -153,6 +162,12 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     context.getInheritedWidgetOfExactType<SfxScope>()?.notifier?.play(sfx);
   }
 
+  /// 햅틱 재생. 스코프가 없는 환경에서는 조용히 무시된다.
+  void _haptic(Haptic haptic) {
+    if (!mounted) return;
+    context.getInheritedWidgetOfExactType<HapticScope>()?.notifier?.play(haptic);
+  }
+
   /// 결과 효과음 재생 여부(판당 1회).
   bool _resultSoundDone = false;
 
@@ -162,8 +177,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     switch (state.result(me).outcome) {
       case MatchOutcome.win:
         _playSfx(Sfx.win);
+        _haptic(Haptic.win);
       case MatchOutcome.lose:
         _playSfx(Sfx.lose);
+        _haptic(Haptic.lose);
       case MatchOutcome.draw:
         break; // 무승부는 소리 없이
     }
@@ -236,14 +253,14 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                         key: const ValueKey('emote-opp'),
                         left: 14,
                         top: landscape ? 92 : 60,
-                        child: _EmoteBubble(key: ValueKey('opp-$_oppEmote'), asset: _oppEmote!),
+                        child: EmoteBubble(key: ValueKey('opp-$_oppEmote'), asset: _oppEmote!),
                       ),
                     if (_myEmote != null)
                       Positioned(
                         key: const ValueKey('emote-me'),
                         left: 14,
                         bottom: landscape ? 116 : 128,
-                        child: _EmoteBubble(key: ValueKey('me-$_myEmote'), asset: _myEmote!),
+                        child: EmoteBubble(key: ValueKey('me-$_myEmote'), asset: _myEmote!),
                       ),
                     // 페르소나 대사 말풍선(상대 아바타 옆, 이모트와 같은 슬롯)
                     if (_oppSpeech != null)
@@ -405,10 +422,12 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   // 비용은 상시 발생하고, 래스터화가 미세하게 달라진다. 대신 **계속 움직이는 것**
   // (TurnAvatar)과 **정적인 것**(TableDecorPainter)을 각각 격리했다.
   Widget _boardView({required bool landscape}) => BoardView(
-        state: state,
+        cellAt: (owner, row, col) => state.fields[owner]![row][col],
         viewer: viewer,
         onCellTap: _onCellTap,
         isHighlighted: _isHighlighted,
+        isConcealed: (owner, row, col) =>
+            _concealedCell == (owner: owner, row: row, col: col),
         cellKeyFor: _boardKey,
         landscape: landscape,
       );
@@ -515,53 +534,14 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     return Column(mainAxisSize: MainAxisSize.min, children: rows);
   }
 
-  Widget _emoteButton(AppLocalizations l10n) => Tooltip(
-        message: l10n.emotesTitle,
-        child: OutlinedButton(
-          onPressed: () => setState(() => _emoteOpen = !_emoteOpen),
-          style: OutlinedButton.styleFrom(
-            padding: const EdgeInsets.all(10),
-            minimumSize: Size.zero,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            side: BorderSide(
-                color: AppColors.gold.withValues(alpha: _emoteOpen ? 1 : 0.55), width: 1.4),
-          ),
-          child: const Icon(Icons.emoji_emotions_rounded, size: 18, color: AppColors.gold),
-        ),
+  Widget _emoteButton(AppLocalizations l10n) => EmoteButton(
+        tooltip: l10n.emotesTitle,
+        open: _emoteOpen,
+        onTap: () => setState(() => _emoteOpen = !_emoteOpen),
       );
 
   /// 이모트 6종이 펼쳐지는 피커 패널.
-  Widget _emotePicker() => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.gold, width: 1.2),
-          boxShadow: AppShapes.panelShadow,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final e in kEmoteAssets)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 3),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(999),
-                  onTap: () => _sendEmote(e),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: AppColors.bgBottom,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: AppColors.stroke),
-                    ),
-                    padding: const EdgeInsets.all(6),
-                    child: PersonaIcon(asset: e, size: 34),
-                  ),
-                ),
-              ),
-          ],
-        ),
-      );
+  Widget _emotePicker() => EmotePicker(onPick: _sendEmote);
 
   /// 내 이모트 전송 → 잠시 뒤 상대(AI)도 반응 이모트를 보낸다(수신 화면 데모).
   void _sendEmote(String asset) {
@@ -749,6 +729,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     }
     // 쉴드 대기 중에 손패를 누르면 "그만두겠다"는 뜻으로 본다.
     if (_tokenMode != null) setState(() => _tokenMode = null);
+    _haptic(Haptic.select);
     setState(() => selected = (selected == i) ? null : i);
   }
 
@@ -843,8 +824,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     }
   }
 
-  /// **빼앗기 연출**: 공격 카드가 날아가 타격 → 맞은 카드가 튕긴 뒤 **내 줄로 날아와**
-  /// 쉴드로 박힌다 → 쓴 공격 카드는 무덤으로 → 보너스 배치 안내. 턴은 아직 내 것.
+  /// **빼앗기 연출**: 공격 카드가 잔상을 끌며 돌진 → **명중**(플래시·파편·진동·히트스톱)
+  /// → 맞은 카드가 크게 튕겨 나간 뒤 **내 줄로 날아와** 쉴드로 박힌다(글린트) →
+  /// 쓴 공격 카드는 무덤으로 → 보너스 배치 안내. 턴은 아직 내 것.
   Future<void> _attackWithFly(int handIndex, PlayerId owner, int row, int col, PlayingCard weapon,
       ({int row, int col}) dest) async {
     final from = _rectFor(_handKeys.length > handIndex ? _handKeys[handIndex] : null);
@@ -852,7 +834,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     final victim = state.fields[owner]![row][col]?.card;
     if (from == null || cellRect == null || victim == null) {
       state.attack(handIndex, row, col, dest.row, dest.col);
-      _playSfx(Sfx.attack);
+      _playSfx(Sfx.attackHit);
+      _haptic(Haptic.impact);
       _grave.add(weapon);
       setState(() => selected = null);
       await _afterMyAction();
@@ -863,29 +846,44 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       _animating = true;
       _flyingHandIndex = handIndex;
     });
-    // 1) 공격 카드가 타격 지점으로 돌진.
+    // 1) 공격 카드가 가속하며 타격 지점으로 돌진(잔상).
+    // 돌진음 = 실사 카드 슬라이드. 합성 휘잉(v1)은 8비트 게임처럼 들려 뺐다.
+    _playSfx(Sfx.cardSlide);
     await flyCard(
         overlay: overlay,
         vsync: this,
         from: from,
         to: cellRect,
         card: weapon,
-        duration: const Duration(milliseconds: 300));
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeInCubic,
+        trail: true);
     if (!mounted) return;
-    // 2) 규칙 반영 — 상대 칸이 비고, 그 카드가 내 칸에 쉴드로 박힌다.
+    // 2) 명중 — 규칙 반영(상대 칸이 비고, 그 카드가 내 칸에 쉴드로 박힌다) +
+    //    타격 피드백. 히트스톱 한 박자가 "맞았다"를 만든다.
     state.attack(handIndex, row, col, dest.row, dest.col);
-    _playSfx(Sfx.attack);
-    setState(() => _flyingHandIndex = null);
-    // 3) 맞은 카드가 튕긴 뒤 내 칸으로 날아온다.
+    _playSfx(Sfx.attackHit);
+    _haptic(Haptic.impact);
+    setState(() {
+      _flyingHandIndex = null;
+      // 빼앗은 카드는 아직 비행 전 — 안착할 때까지 목적지 칸을 숨긴다.
+      _concealedCell = (owner: me, row: dest.row, col: dest.col);
+    });
+    unawaited(sparkBurst(overlay: overlay, vsync: this, at: cellRect));
+    unawaited(hitFlash(overlay: overlay, vsync: this, at: cellRect));
+    await Future<void>.delayed(const Duration(milliseconds: 70));
+    if (!mounted) return;
+    // 3) 맞은 카드가 크게 튕겨 나간 뒤 내 칸으로 날아온다.
     await poofCard(
         overlay: overlay,
         vsync: this,
         rect: cellRect,
         card: victim,
-        duration: const Duration(milliseconds: 220));
+        driftX: col.isEven ? 0.7 : -0.7);
     if (!mounted) return;
     final myRect = _rectFor(_boardKey(me, dest.row, dest.col));
     if (myRect != null) {
+      _playSfx(Sfx.cardSlide);
       await flyCard(
         overlay: overlay,
         vsync: this,
@@ -896,6 +894,13 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         spinTurns: 0.5,
       );
       if (!mounted) return;
+      // 안착 — 이제야 칸에 나타난다. 쉴드 고정: 금색 글린트 + 잠금 촉감.
+      setState(() => _concealedCell = null);
+      _playSfx(Sfx.shield);
+      _haptic(Haptic.shieldLock);
+      unawaited(shieldGlint(overlay: overlay, vsync: this, at: myRect));
+    } else {
+      setState(() => _concealedCell = null);
     }
     // 4) 쓴 공격 카드는 무덤으로.
     final graveRect = _rectFor(_graveKey);
@@ -944,6 +949,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     if (from == null || to == null) {
       commit();
       _playSfx(Sfx.cardPlace);
+      _haptic(Haptic.place);
       setState(() => selected = null);
       return;
     }
@@ -955,6 +961,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     if (!mounted) return;
     commit();
     _playSfx(Sfx.cardPlace);
+    _haptic(Haptic.place);
     setState(() {
       _animating = false;
       _flyingHandIndex = null;
@@ -1037,36 +1044,53 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           final from = _rectFor(_oppHandKey);
           final cellRect = _rectFor(_boardKey(me, row, col));
           if (from != null && cellRect != null) {
+            _playSfx(Sfx.cardSlide);
             await flyCard(
                 overlay: Overlay.of(context),
                 vsync: this,
                 from: from,
                 to: cellRect,
                 card: weapon,
-                duration: const Duration(milliseconds: 300));
+                duration: const Duration(milliseconds: 260),
+                curve: Curves.easeInCubic,
+                trail: true);
             if (!mounted) return false;
           }
           state.attack(handIndex, row, col, myRow, myCol);
-          _playSfx(Sfx.attack);
+          // 내 카드가 맞았다 — 내 공격과 똑같은 무게로 얻어맞아야 위협이 실감난다.
+          _playSfx(Sfx.attackHit);
+          _haptic(Haptic.impact);
           if (victim != null && cellRect != null && mounted) {
+            final overlay = Overlay.of(context);
+            setState(() => _concealedCell = (owner: ai, row: myRow, col: myCol));
+            unawaited(sparkBurst(overlay: overlay, vsync: this, at: cellRect));
+            unawaited(hitFlash(overlay: overlay, vsync: this, at: cellRect));
+            await Future<void>.delayed(const Duration(milliseconds: 70));
+            if (!mounted) return false;
             await poofCard(
-                overlay: Overlay.of(context),
+                overlay: overlay,
                 vsync: this,
                 rect: cellRect,
                 card: victim,
-                duration: const Duration(milliseconds: 220));
+                driftX: col.isEven ? -0.7 : 0.7);
             // 빼앗긴 카드가 상대(AI) 줄로 날아간다.
             final toRect = _rectFor(_boardKey(ai, myRow, myCol));
             if (toRect != null && mounted) {
+              _playSfx(Sfx.cardSlide);
               await flyCard(
-                  overlay: Overlay.of(context),
+                  overlay: overlay,
                   vsync: this,
                   from: cellRect,
                   to: toRect,
                   card: state.lastStolen ?? victim,
                   duration: const Duration(milliseconds: 440),
                   spinTurns: 0.5);
+              if (mounted) {
+                _playSfx(Sfx.shield);
+                unawaited(shieldGlint(overlay: overlay, vsync: this, at: toRect));
+              }
             }
+            if (mounted) setState(() => _concealedCell = null);
           }
           if (!mounted) return false;
           _grave.add(weapon);
@@ -1093,6 +1117,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     final l10n = AppLocalizations.of(context);
     try {
       state.fold();
+      _haptic(Haptic.select);
       setState(() => selected = null);
       await _maybeRunOpponent();
     } on IllegalMove catch (e) {
@@ -1135,6 +1160,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     }
     await m.wallet.spend(kind);
     _playSfx(kind == TokenKind.shield ? Sfx.shield : Sfx.token);
+    _haptic(Haptic.token);
     if (!mounted) return;
     setState(() => _tokenMode = null);
     _snack(kind == TokenKind.shield ? l10n.tokenShieldDone : l10n.tokenAttackDone);
@@ -1550,39 +1576,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 // ---- 작은 위젯들 ----
 
 /// 이모트 말풍선: 아이보리 벌룬 안에서 로티 표정이 재생된다. 스케일 팝 등장.
-class _EmoteBubble extends StatelessWidget {
-  const _EmoteBubble({super.key, required this.asset});
-  final String asset;
-
-  @override
-  Widget build(BuildContext context) {
-    return IgnorePointer(
-      child: TweenAnimationBuilder<double>(
-        tween: Tween(begin: 0, end: 1),
-        duration: const Duration(milliseconds: 260),
-        curve: Curves.easeOutBack,
-        builder: (context, t, child) => Opacity(
-            opacity: t.clamp(0.0, 1.0), child: Transform.scale(scale: 0.6 + 0.4 * t, child: child)),
-        child: Container(
-          padding: const EdgeInsets.all(9),
-          decoration: BoxDecoration(
-            color: AppColors.cardBody,
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(20),
-              topRight: Radius.circular(20),
-              bottomRight: Radius.circular(20),
-              bottomLeft: Radius.circular(6), // 꼬리 방향(아바타 쪽)
-            ),
-            border: Border.all(color: AppColors.goldDeep, width: 1.2),
-            boxShadow: AppShapes.panelShadow,
-          ),
-          child: PersonaIcon(asset: asset, size: 52),
-        ),
-      ),
-    );
-  }
-}
-
 /// 페르소나 대사 말풍선: 아이보리 벌룬 + 잉크 텍스트, 스케일 팝 등장.
 class _SpeechBubble extends StatelessWidget {
   const _SpeechBubble({super.key, required this.text});

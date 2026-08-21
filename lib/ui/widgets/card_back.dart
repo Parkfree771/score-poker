@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../../domain/card.dart';
 import '../theme.dart';
 import 'card_face.dart';
 import 'suit_glyphs.dart';
@@ -47,6 +48,93 @@ class CardBack extends StatelessWidget {
       ),
     );
   }
+}
+
+/// **홀카드 필**: 덮인 카드의 모서리가 살짝 들려 숫자·무늬가 보인다.
+///
+/// 가림 룰에서 "상대에겐 뒷면인데 나는 내용을 아는" 내 카드의 표현.
+/// 포커에서 홀카드를 손끝으로 들춰 보는 바로 그 동작이다 — 뒷면이 그대로 보이므로
+/// "덮여 있다"가 전달되고, 들린 모서리의 랭크·무늬로 "나는 안다"가 전달된다.
+class PeekCardBack extends StatelessWidget {
+  const PeekCardBack({super.key, required this.card, required this.size});
+
+  final PlayingCard card;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final w = size;
+    final h = CardBack.heightFor(w);
+    final fold = w * 0.52; // 들리는 모서리 한 변 길이
+    final red = suitIsRed(card.suit);
+    return SizedBox(
+      width: w,
+      height: h,
+      child: Stack(
+        children: [
+          Positioned.fill(child: cachedCardBack(w)),
+          // 오른쪽 아래 모서리가 들려 속(아이보리)이 드러난다.
+          Positioned(
+            right: w * 0.045,
+            bottom: w * 0.045,
+            child: ClipPath(
+              clipper: _FoldClipper(),
+              child: Container(
+                width: fold,
+                height: fold,
+                decoration: const BoxDecoration(color: Color(0xFFF7F2E4)),
+                child: Stack(
+                  children: [
+                    // 접힌 선(대각선) — 들렸다는 인상을 주는 최소한의 음영선
+                    CustomPaint(size: Size(fold, fold), painter: _FoldEdgePainter()),
+                    Align(
+                      alignment: const Alignment(0.55, 0.6),
+                      child: Text(
+                        '${rankLabel(card.rank)}${card.suit.symbol}',
+                        style: TextStyle(
+                          color: red ? AppColors.red : AppColors.dark,
+                          fontWeight: FontWeight.w900,
+                          fontSize: fold * 0.4,
+                          height: 1,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 오른쪽 아래 직각 삼각형(들린 모서리 모양).
+class _FoldClipper extends CustomClipper<Path> {
+  @override
+  Path getClip(Size size) => Path()
+    ..moveTo(size.width, 0)
+    ..lineTo(size.width, size.height)
+    ..lineTo(0, size.height)
+    ..close();
+
+  @override
+  bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
+}
+
+class _FoldEdgePainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final line = Paint()
+      ..color = AppColors.gold
+      ..strokeWidth = 1.6
+      ..style = PaintingStyle.stroke;
+    canvas.drawLine(Offset(size.width, 0), Offset(0, size.height), line);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 /// 상대 손패를 **겹쳐진 뒷면 카드 부채**로 표시하고, 옆에 장수 배지를 붙인다.

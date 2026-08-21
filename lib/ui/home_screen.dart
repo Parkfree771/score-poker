@@ -9,6 +9,7 @@ import 'persona_select_screen.dart';
 import 'ranking_screen.dart';
 import 'settings_screen.dart';
 import 'shop_screen.dart';
+import 'veiled_game_screen.dart';
 import 'theme.dart';
 
 /// 메인 메뉴: 모드 선택(온라인 대전 / 싱글 플레이).
@@ -110,6 +111,15 @@ class _HomeScreenState extends State<HomeScreen> {
                     description: l10n.modeSingleDesc,
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(builder: (_) => const PersonaSelectScreen()),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  _ModeCard(
+                    icon: Icons.science_rounded,
+                    title: l10n.sdModeTitle,
+                    description: l10n.sdModeDesc,
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(builder: (_) => const VeiledGameScreen()),
                     ),
                   ),
                   const SizedBox(height: 10),

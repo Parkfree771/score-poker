@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../audio/sfx.dart';
 import '../data/app_settings.dart';
+import '../feedback/haptics.dart';
 import '../l10n/app_localizations.dart';
 import 'how_to_play_screen.dart';
 import 'rules_screen.dart';
@@ -131,24 +132,46 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  /// 효과음 on/off. 스코프가 없는 환경(위젯 테스트·스크린샷)에서는 섹션째 숨긴다.
+  /// 효과음·햅틱 on/off. 스코프가 없는 환경(위젯 테스트·스크린샷)에서는 섹션째 숨긴다.
+  /// 햅틱 토글은 진동이 의미 있는 플랫폼(Android/iOS)에서만 보인다.
   List<Widget> _soundSection(BuildContext context, AppLocalizations l10n) {
     final sfx = SfxScope.maybeOf(context);
     if (sfx == null) return const [];
+    final haptics = HapticScope.maybeOf(context);
+    final showHaptics = haptics != null && haptics.supported;
     return [
       _SectionLabel(l10n.soundSectionTitle),
       const SizedBox(height: 8),
       _Panel(
-        child: SwitchListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
-          activeThumbColor: AppColors.gold,
-          title: Text(l10n.soundEffectsTitle,
-              style:
-                  const TextStyle(color: AppColors.textMain, fontWeight: FontWeight.w600)),
-          subtitle: Text(l10n.soundEffectsDesc,
-              style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
-          value: sfx.enabled,
-          onChanged: (v) => sfx.setEnabled(v),
+        child: Column(
+          children: [
+            SwitchListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
+              activeThumbColor: AppColors.gold,
+              title: Text(l10n.soundEffectsTitle,
+                  style: const TextStyle(
+                      color: AppColors.textMain, fontWeight: FontWeight.w600)),
+              subtitle: Text(l10n.soundEffectsDesc,
+                  style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
+              value: sfx.enabled,
+              onChanged: (v) => sfx.setEnabled(v),
+            ),
+            if (showHaptics) ...[
+              const Divider(height: 1, color: AppColors.stroke),
+              SwitchListTile(
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
+                activeThumbColor: AppColors.gold,
+                title: Text(l10n.hapticsTitle,
+                    style: const TextStyle(
+                        color: AppColors.textMain, fontWeight: FontWeight.w600)),
+                subtitle: Text(l10n.hapticsDesc,
+                    style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
+                value: haptics.enabled,
+                onChanged: (v) => haptics.setEnabled(v),
+              ),
+            ],
+          ],
         ),
       ),
       const SizedBox(height: 24),

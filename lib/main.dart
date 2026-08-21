@@ -3,6 +3,7 @@ import 'package:flutter/scheduler.dart';
 
 import 'audio/sfx.dart';
 import 'data/app_settings.dart';
+import 'feedback/haptics.dart';
 import 'l10n/app_localizations.dart';
 import 'monetization/monetization.dart';
 import 'ui/home_screen.dart';
@@ -11,12 +12,14 @@ import 'ui/theme.dart';
 void main() => runApp(const ScorePokerApp());
 
 class ScorePokerApp extends StatefulWidget {
-  const ScorePokerApp({super.key, this.monetization, this.settings, this.sfx});
+  const ScorePokerApp(
+      {super.key, this.monetization, this.settings, this.sfx, this.haptics});
 
   /// 테스트에서 주입용. 비우면 기본(플랫폼에 맞는) 구성을 쓴다.
   final Monetization? monetization;
   final AppSettings? settings;
   final SfxService? sfx;
+  final HapticService? haptics;
 
   @override
   State<ScorePokerApp> createState() => _ScorePokerAppState();
@@ -26,6 +29,7 @@ class _ScorePokerAppState extends State<ScorePokerApp> {
   late final Monetization _monetization = widget.monetization ?? Monetization();
   late final AppSettings _settings = widget.settings ?? AppSettings();
   late final SfxService _sfx = widget.sfx ?? SfxService();
+  late final HapticService _haptics = widget.haptics ?? HapticService();
 
   @override
   void initState() {
@@ -35,6 +39,7 @@ class _ScorePokerAppState extends State<ScorePokerApp> {
     // 저장소를 못 읽는 환경(테스트 등)에서도 앱은 떠야 한다 — 실패하면 기본값으로 간다.
     _guard(_settings.load());
     _guard(_sfx.load());
+    _guard(_haptics.load());
     // 결제 초기화는 네트워크를 타서 수백 ms가 걸린다. main()에서 await하면
     // 그동안 흰 화면이 뜨므로 **첫 프레임이 그려진 뒤에** 시작한다.
     SchedulerBinding.instance
@@ -49,6 +54,7 @@ class _ScorePokerAppState extends State<ScorePokerApp> {
     _monetization.dispose();
     _settings.dispose();
     _sfx.dispose();
+    _haptics.dispose();
     super.dispose();
   }
 
@@ -60,19 +66,22 @@ class _ScorePokerAppState extends State<ScorePokerApp> {
       settings: _settings,
       child: SfxScope(
         service: _sfx,
-        child: MonetizationScope(
-          monetization: _monetization,
-          child: AnimatedBuilder(
-            animation: _settings,
-            builder: (context, _) => MaterialApp(
-              onGenerateTitle: (ctx) => AppLocalizations.of(ctx).appTitle,
-              localizationsDelegates: AppLocalizations.localizationsDelegates,
-              supportedLocales: AppLocalizations.supportedLocales,
-              // null이면 기기 언어를 따른다(지원하지 않는 언어는 아래 콜백이 영어로 보낸다).
-              locale: _settings.locale,
-              localeListResolutionCallback: _resolveLocale,
-              theme: buildAppTheme(),
-              home: const HomeScreen(),
+        child: HapticScope(
+          service: _haptics,
+          child: MonetizationScope(
+            monetization: _monetization,
+            child: AnimatedBuilder(
+              animation: _settings,
+              builder: (context, _) => MaterialApp(
+                onGenerateTitle: (ctx) => AppLocalizations.of(ctx).appTitle,
+                localizationsDelegates: AppLocalizations.localizationsDelegates,
+                supportedLocales: AppLocalizations.supportedLocales,
+                // null이면 기기 언어를 따른다(지원하지 않는 언어는 아래 콜백이 영어로 보낸다).
+                locale: _settings.locale,
+                localeListResolutionCallback: _resolveLocale,
+                theme: buildAppTheme(),
+                home: const HomeScreen(),
+              ),
             ),
           ),
         ),
