@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:score_poker/domain/card.dart';
-import 'package:score_poker/domain/deck.dart';
 import 'package:score_poker/domain/game.dart';
 import 'package:score_poker/l10n/app_localizations.dart';
 import 'package:score_poker/ui/game_screen.dart';
@@ -33,12 +32,6 @@ void main() {
       expect(identical(cachedCardFace(a, 50), cachedCardFace(a, 51)), isFalse);
     });
 
-    test('쉴드/조커 표식이 다르면 다른 인스턴스 (겉모습이 다르므로)', () {
-      const plain = PlayingCard(7, Suit.hearts);
-      const shielded = PlayingCard(7, Suit.hearts, isShield: true);
-      expect(identical(cachedCardFace(plain, 50), cachedCardFace(shielded, 50)), isFalse);
-    });
-
     test('크기가 계속 달라져도 캐시가 무한히 커지지 않는다', () {
       const c = PlayingCard(7, Suit.hearts);
       for (var i = 0; i < 2000; i++) {
@@ -50,18 +43,13 @@ void main() {
   });
 
   testWidgets('손패 GlobalKey는 리빌드해도 그대로 유지된다', (tester) async {
-    final s = GameState.custom(Deck.shuffled(seed: 5));
-    s.hands[PlayerId.p0]!.addAll([
-      for (var i = 0; i < 5; i++) PlayingCard(5 + i, Suit.hearts, isAttacker: true),
-    ]);
-    s.current = PlayerId.p0;
-
+    final g = ScoreGame.deal(seed: 5);
     await tester.pumpWidget(MaterialApp(
       theme: buildAppTheme(),
       locale: const Locale('ko'),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
-      home: GameScreen(initialState: s),
+      home: GameScreen(initialGame: g),
     ));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));

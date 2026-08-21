@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
 
-import '../domain/ai_strategy.dart';
+import '../domain/ai.dart';
 import '../l10n/app_localizations.dart';
 
 /// 감정 표현(이모트) 로티 에셋 — 페르소나 화면 미리보기와 게임 화면 공용.
@@ -16,19 +16,29 @@ const List<String> kEmoteAssets = [
 ];
 
 /// 상황별 대사 묶음(각 목록에서 무작위로 한 줄을 골라 말한다).
+/// 항목은 **가림 룰의 사건**과 1:1로 붙어 있다 — 규칙에 없는 상황의 대사는 두지 않는다.
 class PersonaLines {
   const PersonaLines({
     required this.greeting, // 게임 시작
-    required this.removeMine, // AI가 내 카드를 제거했을 때
-    required this.removed, // 내가 AI의 카드를 제거했을 때
-    required this.joker, // AI가 조커를 냈을 때
-    required this.shieldTrick, // AI가 내 줄에 쉴드를 꽂았을 때(변칙)
+    required this.hide, // AI가 자기 카드를 숨겼을 때
+    required this.peek, // AI가 내 숨긴 카드를 열었을 때
+    required this.peeked, // 내가 AI의 숨긴 카드를 열었을 때
+    required this.lead, // 공개 후 AI가 줄에서 앞설 때
+    required this.behind, // 공개 후 AI가 밀릴 때
     required this.winGame, // AI 승리
     required this.loseGame, // AI 패배
     required this.drawGame, // 무승부
   });
 
-  final List<String> greeting, removeMine, removed, joker, shieldTrick, winGame, loseGame, drawGame;
+  final List<String> greeting,
+      hide,
+      peek,
+      peeked,
+      lead,
+      behind,
+      winGame,
+      loseGame,
+      drawGame;
 }
 
 /// AI 대전 상대 캐릭터.
@@ -42,9 +52,9 @@ class Persona {
     required this.badgeBg,
     required this.asset,
     required this.colorOverrides,
-    required this.attack,
-    required this.defense,
-    required this.trick,
+    required this.pressure,
+    required this.steady,
+    required this.bluff,
     required this.style,
     required this.lines,
   });
@@ -57,7 +67,12 @@ class Persona {
   final Color badgeBg; // 캐릭터에 어울리는 배지 배경(게임 팔레트와 달라도 됨)
   final String asset;
   final List<ValueDelegate>? colorOverrides;
-  final int attack, defense, trick; // 기풍 스탯(0~5)
+
+  /// 기풍 스탯(0~5). 숫자가 아니라 **실제 AI 계수**([AiProfile])를 요약한 것이다:
+  /// 압박 = 이길 두 줄에 몰아주는 정도, 침착 = 비공개권을 아끼는 정도,
+  /// 허세 = 값어치 없는 카드도 숨기는 정도.
+  final int pressure, steady, bluff;
+
   final AiStyle style;
   final PersonaLines lines;
 }
@@ -104,16 +119,17 @@ List<Persona> buildPersonas(AppLocalizations l10n) => [
         badgeBg: const Color(0xFF3B1A0E),
         asset: 'assets/lottie/flame.json',
         colorOverrides: flameColors,
-        attack: 3,
-        defense: 5,
-        trick: 2,
+        pressure: 2,
+        steady: 5,
+        bluff: 1,
         style: AiStyle.clode,
         lines: PersonaLines(
           greeting: [l10n.personaClodeGreeting1, l10n.personaClodeGreeting2],
-          removeMine: [l10n.personaClodeRemoveMine1, l10n.personaClodeRemoveMine2],
-          removed: [l10n.personaClodeRemoved1, l10n.personaClodeRemoved2],
-          joker: [l10n.personaClodeJoker1, l10n.personaClodeJoker2],
-          shieldTrick: [l10n.personaClodeShield1],
+          hide: [l10n.personaClodeHide1, l10n.personaClodeHide2],
+          peek: [l10n.personaClodePeek1, l10n.personaClodePeek2],
+          peeked: [l10n.personaClodePeeked1, l10n.personaClodePeeked2],
+          lead: [l10n.personaClodeLead1, l10n.personaClodeLead2],
+          behind: [l10n.personaClodeBehind1, l10n.personaClodeBehind2],
           winGame: [l10n.personaClodeWin1, l10n.personaClodeWin2],
           loseGame: [l10n.personaClodeLose1, l10n.personaClodeLose2],
           drawGame: [l10n.personaClodeDraw1],
@@ -128,16 +144,17 @@ List<Persona> buildPersonas(AppLocalizations l10n) => [
         badgeBg: const Color(0xFF15171C),
         asset: 'assets/lottie/planet.json',
         colorOverrides: planetColors,
-        attack: 5,
-        defense: 2,
-        trick: 3,
+        pressure: 5,
+        steady: 2,
+        bluff: 3,
         style: AiStyle.het,
         lines: PersonaLines(
           greeting: [l10n.personaHetGreeting1, l10n.personaHetGreeting2],
-          removeMine: [l10n.personaHetRemoveMine1, l10n.personaHetRemoveMine2],
-          removed: [l10n.personaHetRemoved1, l10n.personaHetRemoved2],
-          joker: [l10n.personaHetJoker1, l10n.personaHetJoker2],
-          shieldTrick: [l10n.personaHetShield1],
+          hide: [l10n.personaHetHide1, l10n.personaHetHide2],
+          peek: [l10n.personaHetPeek1, l10n.personaHetPeek2],
+          peeked: [l10n.personaHetPeeked1, l10n.personaHetPeeked2],
+          lead: [l10n.personaHetLead1, l10n.personaHetLead2],
+          behind: [l10n.personaHetBehind1, l10n.personaHetBehind2],
           winGame: [l10n.personaHetWin1, l10n.personaHetWin2],
           loseGame: [l10n.personaHetLose1, l10n.personaHetLose2],
           drawGame: [l10n.personaHetDraw1],
@@ -152,16 +169,17 @@ List<Persona> buildPersonas(AppLocalizations l10n) => [
         badgeBg: const Color(0xFF101A31),
         asset: 'assets/lottie/comet.json',
         colorOverrides: null, // 그라데이션 원색 그대로
-        attack: 2,
-        defense: 3,
-        trick: 5,
+        pressure: 3,
+        steady: 2,
+        bluff: 5,
         style: AiStyle.jenna,
         lines: PersonaLines(
           greeting: [l10n.personaJennaGreeting1, l10n.personaJennaGreeting2],
-          removeMine: [l10n.personaJennaRemoveMine1, l10n.personaJennaRemoveMine2],
-          removed: [l10n.personaJennaRemoved1, l10n.personaJennaRemoved2],
-          joker: [l10n.personaJennaJoker1],
-          shieldTrick: [l10n.personaJennaShield1, l10n.personaJennaShield2],
+          hide: [l10n.personaJennaHide1, l10n.personaJennaHide2],
+          peek: [l10n.personaJennaPeek1, l10n.personaJennaPeek2],
+          peeked: [l10n.personaJennaPeeked1, l10n.personaJennaPeeked2],
+          lead: [l10n.personaJennaLead1, l10n.personaJennaLead2],
+          behind: [l10n.personaJennaBehind1, l10n.personaJennaBehind2],
           winGame: [l10n.personaJennaWin1, l10n.personaJennaWin2],
           loseGame: [l10n.personaJennaLose1, l10n.personaJennaLose2],
           drawGame: [l10n.personaJennaDraw1],

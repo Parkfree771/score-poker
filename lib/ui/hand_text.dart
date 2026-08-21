@@ -15,5 +15,18 @@ String handCategoryName(AppLocalizations l10n, HandCategory c) => switch (c) {
       HandCategory.fullHouse => l10n.handFullHouse,
       HandCategory.fourOfAKind => l10n.handFourOfAKind,
       HandCategory.straightFlush => l10n.handStraightFlush,
-      HandCategory.fiveOfAKind => l10n.handFiveOfAKind,
+    };
+
+/// 보드 점수 알약에 넣을 **짧은 족보 이름**. 하이카드는 이름이 없다(숫자만 보여준다) —
+/// 알약은 좁고, "하이카드"는 알려주는 것이 없다.
+String? handCategoryShort(AppLocalizations l10n, HandCategory c) => switch (c) {
+      HandCategory.highCard => null,
+      HandCategory.onePair => l10n.handShortOnePair,
+      HandCategory.twoPair => l10n.handShortTwoPair,
+      HandCategory.threeOfAKind => l10n.handShortThreeOfAKind,
+      HandCategory.straight => l10n.handShortStraight,
+      HandCategory.flush => l10n.handShortFlush,
+      HandCategory.fullHouse => l10n.handShortFullHouse,
+      HandCategory.fourOfAKind => l10n.handShortFourOfAKind,
+      HandCategory.straightFlush => l10n.handShortStraightFlush,
     };

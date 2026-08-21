@@ -4,18 +4,15 @@ import 'package:score_poker/domain/deck.dart';
 
 void main() {
   group('덱', () {
-    test('표준 덱은 54장 (52 + 조커 2)', () {
-      expect(Deck.standard().remaining, 54);
+    test('표준 덱은 52장 (조커 없음)', () {
+      expect(Deck.standard().remaining, 52);
     });
 
-    test('조커는 정확히 2장, 각 랭크는 4장씩', () {
-      final all = Deck.standard().draw(100); // 54장 전부
-      expect(all.length, 54);
-      expect(all.where((c) => c.isJoker).length, 2);
-
-      final nonJoker = all.where((c) => !c.isJoker);
+    test('각 랭크는 4장씩', () {
+      final all = Deck.standard().draw(100); // 52장 전부
+      expect(all.length, 52);
       for (final rank in Ranks.all) {
-        expect(nonJoker.where((c) => c.rank == rank).length, 4, reason: 'rank $rank');
+        expect(all.where((c) => c.rank == rank).length, 4, reason: 'rank $rank');
       }
     });
 
@@ -23,18 +20,18 @@ void main() {
       final deck = Deck.standard();
       final hand = deck.draw(6);
       expect(hand.length, 6);
-      expect(deck.remaining, 48);
+      expect(deck.remaining, 46);
     });
 
     test('같은 seed면 셔플 결과가 재현된다', () {
-      final a = Deck.shuffled(seed: 42).draw(54);
-      final b = Deck.shuffled(seed: 42).draw(54);
+      final a = Deck.shuffled(seed: 42).draw(52);
+      final b = Deck.shuffled(seed: 42).draw(52);
       expect(a, b);
     });
 
     test('덱이 비면 draw는 있는 만큼만 반환', () {
       final deck = Deck.standard();
-      deck.draw(54);
+      deck.draw(52);
       expect(deck.isEmpty, isTrue);
       expect(deck.draw(5), isEmpty);
     });

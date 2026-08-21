@@ -240,9 +240,9 @@ class _StatRow extends StatelessWidget {
       spacing: 14,
       runSpacing: 6,
       children: [
-        stat(l10n.statAttack, persona.attack),
-        stat(l10n.statDefense, persona.defense),
-        stat(l10n.statTrick, persona.trick),
+        stat(l10n.statPressure, persona.pressure),
+        stat(l10n.statSteady, persona.steady),
+        stat(l10n.statBluff, persona.bluff),
       ],
     );
   }

@@ -11,7 +11,6 @@ enum HandCategory {
   fullHouse,
   fourOfAKind,
   straightFlush,
-  fiveOfAKind, // 조커 와일드로만 가능
 }
 
 /// 한 줄(최대 5장) 평가 결과.
@@ -62,9 +61,7 @@ HandResult evaluateHand(List<PlayingCard> cards) {
   final isStraight = full && _isStraight(counts.keys.toList());
 
   final HandCategory category;
-  if (full && maxGroup == 5) {
-    category = HandCategory.fiveOfAKind;
-  } else if (full && isStraight && isFlush) {
+  if (full && isStraight && isFlush) {
     category = HandCategory.straightFlush;
   } else if (full && maxGroup == 4) {
     category = HandCategory.fourOfAKind;

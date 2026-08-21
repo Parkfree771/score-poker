@@ -111,14 +111,17 @@ class SfxService extends ChangeNotifier {
     _play(sfx).catchError((Object _) {});
   }
 
+  /// **재생 호출을 await로 줄줄이 엮지 않는다.** stop → setRate → resume을 차례로
+  /// 기다리면 플랫폼 채널을 세 번 왕복하는 동안 소리가 밀린다(카드가 손에 닿고 나서
+  /// "착"이 난다). 같은 플레이어에 건 호출은 순서가 유지되므로 걸어만 두고 넘어간다.
   Future<void> _play(Sfx sfx) async {
     final p = _player(sfx, _rng.nextInt(sfx.variants));
-    await p.stop(); // 겹치면 재시작 (ReleaseMode.stop이라 소스는 유지된다)
+    unawaited(p.stop().catchError((Object _) {})); // 겹치면 재시작
     if (sfx.jitter) {
       // 미지원 플랫폼에서 실패해도 원속으로 재생되면 그만이다.
-      await p
+      unawaited(p
           .setPlaybackRate(0.94 + _rng.nextDouble() * 0.12)
-          .catchError((Object _) {});
+          .catchError((Object _) {}));
     }
     // 소스가 이미 물려 있으므로 resume이 즉시 난다. 프리로드가 실패했던
     // 파일이면 여기서 다시 세팅된다.

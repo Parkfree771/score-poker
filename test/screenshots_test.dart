@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:score_poker/domain/card.dart';
-import 'package:score_poker/domain/deck.dart';
 import 'package:score_poker/domain/game.dart';
 import 'package:score_poker/domain/records.dart';
 import 'package:score_poker/domain/scoring.dart';
@@ -23,9 +22,10 @@ import 'package:score_poker/ui/settings_screen.dart';
 import 'package:score_poker/ui/shop_screen.dart';
 import 'package:score_poker/ui/widgets/celebration.dart';
 import 'package:score_poker/ui/theme.dart';
+import 'package:score_poker/ui/widgets/board_view.dart';
+import 'package:score_poker/ui/widgets/card_back.dart';
+import 'package:score_poker/ui/widgets/veil_shimmer.dart';
 import 'package:score_poker/ui/widgets/card_face.dart';
-import 'package:score_poker/ui/widgets/opening_sequence.dart';
-import 'package:score_poker/monetization/monetization.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // Renders screens to PNG (goldens/shot_*.png) for visual review.
@@ -81,69 +81,86 @@ Widget _appWithSettings(Widget child, {String locale = 'ko', Locale? selected}) 
   return AppSettingsScope(settings: settings, child: _app(child, locale: locale));
 }
 
-void _place(GameState s, PlayerId p, int row, List<PlayingCard> cards) {
+/// [row]줄을 왼쪽부터 [cards]로 채운다. [hidden]에 든 열은 뒷면으로 남는다.
+void _place(ScoreGame g, PlayerId p, int row, List<PlayingCard> cards,
+    {Set<int> hidden = const {}}) {
   for (var i = 0; i < cards.length; i++) {
-    s.fields[p]![row][i] = PlacedCard(cards[i], p);
+    g.fields[p]![row][i] =
+        VeiledSlot(cards[i], round: i, faceUp: !hidden.contains(i));
   }
 }
 
-GameState _demoState({Map<PlayerId, GameRules> rules = const {}}) {
-  final s = GameState.custom(Deck.shuffled(seed: 7), rules: rules);
+/// 3라운드째 중반 판 — 공개된 카드, 상대의 숨긴 카드, 내 홀카드가 한 화면에 나온다.
+ScoreGame _demoState() {
+  final g = ScoreGame.deal(seed: 7);
   const h = Suit.hearts, sp = Suit.spades, d = Suit.diamonds, c = Suit.clubs;
-  _place(s, PlayerId.p0, 0, [const PlayingCard(14, sp), const PlayingCard(14, h)]);
-  _place(s, PlayerId.p0, 1, [const PlayingCard(10, c), const PlayingCard(10, d), const PlayingCard(10, sp)]);
-  _place(s, PlayerId.p0, 2, [const PlayingCard(7, h)]);
-  _place(s, PlayerId.p1, 0, [const PlayingCard(13, d), const PlayingCard(12, d)]);
-  _place(s, PlayerId.p1, 1, [const PlayingCard(9, sp), const PlayingCard(9, h)]);
-  _place(s, PlayerId.p1, 2, [const PlayingCard(3, c, isShield: true)]);
-  s.hands[PlayerId.p0]!
+  _place(g, PlayerId.p0, 0, [const PlayingCard(14, sp), const PlayingCard(14, h)]);
+  _place(g, PlayerId.p0, 1,
+      [const PlayingCard(10, c), const PlayingCard(10, d), const PlayingCard(10, sp)],
+      hidden: {2});
+  _place(g, PlayerId.p0, 2, [const PlayingCard(7, h)]);
+  _place(g, PlayerId.p1, 0, [const PlayingCard(13, d), const PlayingCard(12, d)]);
+  _place(g, PlayerId.p1, 1, [const PlayingCard(9, sp), const PlayingCard(9, h)],
+      hidden: {1});
+  _place(g, PlayerId.p1, 2, [const PlayingCard(3, c)], hidden: {0});
+  g.round = 2;
+  g.veilLeft[PlayerId.p0] = 2;
+  g.veilLeft[PlayerId.p1] = 1;
+  // 이번 라운드에 놓은 카드(숨김 지정 가능) 한 장을 남겨 둔다.
+  g.fields[PlayerId.p0]![2][1] = VeiledSlot(const PlayingCard(7, sp), round: 2);
+  g.hands[PlayerId.p0]!
     ..clear()
     ..addAll([
       const PlayingCard(5, c),
       const PlayingCard(13, sp),
-      PlayingCard.undesignatedJoker(),
-      const PlayingCard(8, d, isShield: true),
+      const PlayingCard(4, h),
+      const PlayingCard(8, d),
     ]);
-  s.hands[PlayerId.p1]!
+  g.hands[PlayerId.p1]!
     ..clear()
     ..addAll([for (var i = 0; i < 4; i++) const PlayingCard(2, sp)]);
-  s.current = PlayerId.p0;
-  return s;
+  return g;
 }
 
-GameState _finishedState() {
-  final s = GameState.custom(Deck.shuffled(seed: 7));
+/// 최후 공개까지 끝난 판 — 결과 오버레이 캡처용.
+ScoreGame _finishedState() {
+  final g = ScoreGame.deal(seed: 7);
   const h = Suit.hearts, sp = Suit.spades, d = Suit.diamonds, c = Suit.clubs;
-  // L0: 나 Four of a Kind vs 상대 High Card → 나 승
-  _place(s, PlayerId.p0, 0, [const PlayingCard(10, c), const PlayingCard(10, d), const PlayingCard(10, sp), const PlayingCard(10, h), const PlayingCard(5, c)]);
-  _place(s, PlayerId.p1, 0, [const PlayingCard(2, sp), const PlayingCard(3, d), const PlayingCard(4, c), const PlayingCard(6, h), const PlayingCard(9, sp)]);
-  // L1: 나 Full House vs 상대 Four of a Kind → 상대 승
-  _place(s, PlayerId.p0, 1, [const PlayingCard(13, sp), const PlayingCard(13, h), const PlayingCard(13, d), const PlayingCard(12, c), const PlayingCard(12, d)]);
-  _place(s, PlayerId.p1, 1, [const PlayingCard(7, sp), const PlayingCard(7, h), const PlayingCard(7, d), const PlayingCard(7, c), const PlayingCard(2, sp)]);
-  // L2: 나 Straight vs 상대 One Pair → 나 승
-  _place(s, PlayerId.p0, 2, [const PlayingCard(5, sp), const PlayingCard(6, d), const PlayingCard(7, c), const PlayingCard(8, h), const PlayingCard(9, sp)]);
-  _place(s, PlayerId.p1, 2, [const PlayingCard(3, c), const PlayingCard(3, d), const PlayingCard(8, sp), const PlayingCard(11, h), const PlayingCard(14, sp)]);
-  s.hands[PlayerId.p0]!.clear();
-  s.hands[PlayerId.p1]!.clear();
-  s.current = PlayerId.p0;
-  s.phase = GamePhase.finished;
-  return s;
+  // L0: 나 포카드 vs 상대 하이카드 → 나 승
+  _place(g, PlayerId.p0, 0, [
+    const PlayingCard(10, c), const PlayingCard(10, d), const PlayingCard(10, sp),
+    const PlayingCard(10, h), const PlayingCard(5, c),
+  ]);
+  _place(g, PlayerId.p1, 0, [
+    const PlayingCard(2, sp), const PlayingCard(3, d), const PlayingCard(4, c),
+    const PlayingCard(6, h), const PlayingCard(9, sp),
+  ]);
+  // L1: 나 풀하우스 vs 상대 포카드 → 상대 승
+  _place(g, PlayerId.p0, 1, [
+    const PlayingCard(13, sp), const PlayingCard(13, h), const PlayingCard(13, d),
+    const PlayingCard(12, c), const PlayingCard(12, d),
+  ]);
+  _place(g, PlayerId.p1, 1, [
+    const PlayingCard(7, sp), const PlayingCard(7, h), const PlayingCard(7, d),
+    const PlayingCard(7, c), const PlayingCard(2, h),
+  ]);
+  // L2: 나 스트레이트 vs 상대 원페어 → 나 승
+  _place(g, PlayerId.p0, 2, [
+    const PlayingCard(5, sp), const PlayingCard(6, d), const PlayingCard(7, c),
+    const PlayingCard(8, h), const PlayingCard(9, h),
+  ]);
+  _place(g, PlayerId.p1, 2, [
+    const PlayingCard(3, c), const PlayingCard(3, h), const PlayingCard(8, sp),
+    const PlayingCard(11, h), const PlayingCard(14, c),
+  ]);
+  g.hands[PlayerId.p0]!.clear();
+  g.hands[PlayerId.p1]!.clear();
+  g.round = ScoreGame.totalRounds - 1;
+  g.revealDone = true;
+  g.veilLeft[PlayerId.p0] = 1;
+  g.veilLeft[PlayerId.p1] = 0;
+  return g;
 }
-
-Widget _opening() => Scaffold(
-      body: DecoratedBox(
-        decoration: const BoxDecoration(gradient: AppColors.bgGradient),
-        child: OpeningSequence(
-          myHand: Deck.shuffled(seed: 2).draw(6),
-          oppHand: (Deck.shuffled(seed: 2)..draw(6)).draw(6),
-          oppPick: 0,
-          myName: 'P1',
-          oppName: 'P2',
-          decideFirst: (a, b) => PlayerId.p0,
-          onFinished: (_) {},
-        ),
-      ),
-    );
 
 const _portrait = Size(430, 930);
 const _landscape = Size(930, 430);
@@ -215,27 +232,9 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('opening picking portrait', (tester) async {
-    await setScreen(tester, _portrait);
-    await tester.pumpWidget(_app(_opening()));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 2100));
-    await tester.pump(const Duration(milliseconds: 600)); // VS 프롬프트 페이드인 완료
-    await expectLater(find.byType(OpeningSequence), matchesGoldenFile('goldens/shot_04_opening_portrait.png'));
-  });
-
-  testWidgets('opening picking landscape', (tester) async {
-    await setScreen(tester, _landscape);
-    await tester.pumpWidget(_app(_opening()));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 2100));
-    await tester.pump(const Duration(milliseconds: 600)); // VS 프롬프트 페이드인 완료
-    await expectLater(find.byType(OpeningSequence), matchesGoldenFile('goldens/shot_05_opening_landscape.png'));
-  });
-
   testWidgets('game board portrait', (tester) async {
     await setScreen(tester, _portrait);
-    await tester.pumpWidget(_app(GameScreen(initialState: _demoState())));
+    await tester.pumpWidget(_app(GameScreen(initialGame: _demoState())));
     // 내 차례 골드 링이 무한 반복 애니메이션이라 pumpAndSettle 대신 고정 펌프.
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 700));
@@ -244,7 +243,7 @@ void main() {
 
   testWidgets('game board landscape', (tester) async {
     await setScreen(tester, _landscape);
-    await tester.pumpWidget(_app(GameScreen(initialState: _demoState())));
+    await tester.pumpWidget(_app(GameScreen(initialGame: _demoState())));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 700));
     await expectLater(find.byType(GameScreen), matchesGoldenFile('goldens/shot_07_game_landscape.png'));
@@ -252,14 +251,14 @@ void main() {
 
   testWidgets('result overlay portrait', (tester) async {
     await setScreen(tester, _portrait);
-    await tester.pumpWidget(_app(GameScreen(initialState: _finishedState())));
+    await tester.pumpWidget(_app(GameScreen(initialGame: _finishedState())));
     await tester.pumpAndSettle();
     await expectLater(find.byType(GameScreen), matchesGoldenFile('goldens/shot_08_result_portrait.png'));
   });
 
   testWidgets('result overlay landscape', (tester) async {
     await setScreen(tester, _landscape);
-    await tester.pumpWidget(_app(GameScreen(initialState: _finishedState())));
+    await tester.pumpWidget(_app(GameScreen(initialGame: _finishedState())));
     await tester.pumpAndSettle();
     await expectLater(find.byType(GameScreen), matchesGoldenFile('goldens/shot_09_result_landscape.png'));
   });
@@ -285,22 +284,9 @@ void main() {
     await expectLater(find.byType(RankingScreen), matchesGoldenFile('goldens/shot_13_ranking_empty.png'));
   });
 
-  testWidgets('opening first-turn banner', (tester) async {
-    await setScreen(tester, _portrait);
-    await tester.pumpWidget(_app(_opening()));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 2100));
-    await tester.tap(find.byType(CardFace).first);
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 700));
-    await tester.pump(const Duration(milliseconds: 400));
-    await expectLater(find.byType(OpeningSequence), matchesGoldenFile('goldens/shot_14_opening_banner.png'));
-    await tester.pump(const Duration(milliseconds: 1400));
-  });
-
   testWidgets('game board small phone', (tester) async {
     await setScreen(tester, _smallPhone);
-    await tester.pumpWidget(_app(GameScreen(initialState: _demoState())));
+    await tester.pumpWidget(_app(GameScreen(initialGame: _demoState())));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 700));
     await expectLater(find.byType(GameScreen), matchesGoldenFile('goldens/shot_15_game_small.png'));
@@ -308,7 +294,7 @@ void main() {
 
   testWidgets('result overlay small landscape', (tester) async {
     await setScreen(tester, const Size(740, 360));
-    await tester.pumpWidget(_app(GameScreen(initialState: _finishedState())));
+    await tester.pumpWidget(_app(GameScreen(initialGame: _finishedState())));
     await tester.pumpAndSettle();
     await expectLater(find.byType(GameScreen), matchesGoldenFile('goldens/shot_16_result_small_landscape.png'));
   });
@@ -338,7 +324,7 @@ void main() {
   testWidgets('persona in game with greeting', (tester) async {
     await setScreen(tester, _portrait);
     final clode = buildPersonas(AppLocalizationsKo())[0];
-    await tester.pumpWidget(_app(GameScreen(initialState: _demoState(), persona: clode)));
+    await tester.pumpWidget(_app(GameScreen(initialGame: _demoState(), persona: clode)));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400)); // 인사 말풍선 팝 완료
     await expectLater(find.byType(GameScreen), matchesGoldenFile('goldens/shot_22_persona_game.png'));
@@ -348,14 +334,16 @@ void main() {
   testWidgets('result with persona portrait', (tester) async {
     await setScreen(tester, _portrait);
     final clode = buildPersonas(AppLocalizationsKo())[0];
-    await tester.pumpWidget(_app(GameScreen(initialState: _finishedState(), persona: clode)));
-    await tester.pumpAndSettle();
+    await tester.pumpWidget(_app(GameScreen(initialGame: _finishedState(), persona: clode)));
+    // 결과 오버레이의 캐릭터 로티는 계속 도니까 pumpAndSettle 대신 고정 펌프.
+    await pumpLottie(tester);
+    await tester.pump(const Duration(milliseconds: 400));
     await expectLater(find.byType(GameScreen), matchesGoldenFile('goldens/shot_23_result_persona.png'));
   });
 
   testWidgets('emote picker open', (tester) async {
     await setScreen(tester, _portrait);
-    await tester.pumpWidget(_app(GameScreen(initialState: _demoState())));
+    await tester.pumpWidget(_app(GameScreen(initialGame: _demoState())));
     await tester.pump();
     await tester.tap(find.byIcon(Icons.emoji_emotions_rounded));
     await pumpLottie(tester);
@@ -364,7 +352,7 @@ void main() {
 
   testWidgets('emote bubbles both sides', (tester) async {
     await setScreen(tester, _portrait);
-    await tester.pumpWidget(_app(GameScreen(initialState: _demoState())));
+    await tester.pumpWidget(_app(GameScreen(initialGame: _demoState())));
     await tester.pump();
     await tester.tap(find.byIcon(Icons.emoji_emotions_rounded));
     await pumpLottie(tester);
@@ -378,7 +366,7 @@ void main() {
 
   testWidgets('emote bubbles landscape', (tester) async {
     await setScreen(tester, _landscape);
-    await tester.pumpWidget(_app(GameScreen(initialState: _demoState())));
+    await tester.pumpWidget(_app(GameScreen(initialGame: _demoState())));
     await tester.pump();
     await tester.tap(find.byIcon(Icons.emoji_emotions_rounded));
     await pumpLottie(tester);
@@ -393,7 +381,7 @@ void main() {
   Widget celebrationDemo({String title = 'FOUR CARD!', String subtitle = '포카드'}) => Stack(
         key: const Key('celebration-demo'),
         children: [
-          GameScreen(initialState: _demoState()),
+          GameScreen(initialGame: _demoState()),
           HandCelebration(title: title, subtitle: subtitle, seed: 3),
         ],
       );
@@ -434,43 +422,128 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
   });
 
-  // 공격(빼앗기) 연출 확인용: 돌진(잔상)→명중(플래시·파편·히트스톱)→녹아웃→강탈→
-  // 쉴드 글린트를 100ms 간격 14프레임으로 떠서 갤러리에서 돌려본다.
-  testWidgets('attack sequence frames', (tester) async {
-    await setScreen(tester, _portrait);
-    final s = _demoState();
-    // 상대 9♠(줄2)를 노리는 공격 표식 카드 + 배치용 필러.
-    s.hands[PlayerId.p0]!
-      ..clear()
-      ..addAll([
-        const PlayingCard(9, Suit.clubs, isAttacker: true),
-        const PlayingCard(5, Suit.clubs),
-      ]);
-    await tester.pumpWidget(_app(GameScreen(initialState: s)));
-    // 게임 화면은 턴 아바타가 계속 움직여 pumpAndSettle이 끝나지 않는다.
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
+  /// 디버그 라벨이 붙은 칸/손패 GlobalKey로 위젯을 찾는다(`cell-p0-2-1` 등).
+  Finder labeled(String label) => find.byWidgetPredicate(
+      (w) => w.key is GlobalKey && w.key.toString().contains(label));
 
-    // 보드 칸은 비공개 위젯이라 카드 앞면(CardFace)으로 찾아 탭한다 —
-    // 탭은 위의 GestureDetector(opaque)로 전달된다.
-    final myAttacker = find.byWidgetPredicate((w) =>
-        w is CardFace && w.card == const PlayingCard(9, Suit.clubs, isAttacker: true));
-    final target = find.byWidgetPredicate(
-        (w) => w is CardFace && w.card == const PlayingCard(9, Suit.spades));
+  /// 점수 알약 확인용 판 — 줄마다 다른 족보가 맞붙는다(긴 이름이 알약에 들어가는지 본다).
+  ScoreGame handsState() {
+    final g = ScoreGame.deal(seed: 11);
+    const h = Suit.hearts, sp = Suit.spades, d = Suit.diamonds, c = Suit.clubs;
+    // 줄1: 스트레이트 플러쉬 vs 풀하우스
+    _place(g, PlayerId.p0, 0, [
+      const PlayingCard(5, h), const PlayingCard(6, h), const PlayingCard(7, h),
+      const PlayingCard(8, h), const PlayingCard(9, h),
+    ]);
+    _place(g, PlayerId.p1, 0, [
+      const PlayingCard(13, sp), const PlayingCard(13, d), const PlayingCard(13, c),
+      const PlayingCard(12, sp), const PlayingCard(12, h),
+    ]);
+    // 줄2: 트리플 vs 플러쉬
+    _place(g, PlayerId.p0, 1, [
+      const PlayingCard(4, sp), const PlayingCard(4, d), const PlayingCard(4, c),
+    ]);
+    _place(g, PlayerId.p1, 1, [
+      const PlayingCard(2, d), const PlayingCard(6, d), const PlayingCard(9, d),
+      const PlayingCard(11, d), const PlayingCard(14, d),
+    ]);
+    // 줄3: 투페어 vs 하이카드(이름 없이 숫자만)
+    _place(g, PlayerId.p0, 2, [
+      const PlayingCard(3, sp), const PlayingCard(3, h), const PlayingCard(10, c),
+      const PlayingCard(10, d),
+    ]);
+    _place(g, PlayerId.p1, 2, [const PlayingCard(8, c), const PlayingCard(2, sp)]);
+    g.round = 4;
+    g.hands[PlayerId.p0]!.clear();
+    g.hands[PlayerId.p1]!.clear();
+    return g;
+  }
 
-    await tester.tap(myAttacker);
-    await tester.pump();
-    await tester.tap(target);
-    for (var i = 0; i < 14; i++) {
-      // 연출은 앱 Overlay(화면 위 레이어)에 그려지므로 MaterialApp째 떠야 보인다.
+  for (final (label, locale, shot) in [
+    ('korean', 'ko', 'shot_41_score_pills_ko'),
+    ('english', 'en', 'shot_42_score_pills_en'),
+  ]) {
+    testWidgets('score pills $label', (tester) async {
+      await setScreen(tester, _portrait);
+      await tester.pumpWidget(
+          _app(GameScreen(initialGame: handsState()), locale: locale));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
       await expectLater(
-          find.byType(MaterialApp), matchesGoldenFile('goldens/anim_attack_f$i.png'));
-      await tester.pump(const Duration(milliseconds: 100));
+          find.byType(BoardView), matchesGoldenFile('goldens/$shot.png'));
+    });
+  }
+
+  // 덮인 카드의 **검은 일렁거림** 확인용: 크게 띄운 카드 3장을 520ms 간격 8프레임으로
+  // 떠서 갤러리에서 돌려본다(상대 덮인 카드 / 열어볼 수 있는 카드 / 내 봉인 카드).
+  testWidgets('veil shimmer frames', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(520, 260));
+    tester.view.physicalSize = const Size(520, 260);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    const cardW = 120.0;
+    await tester.pumpWidget(_app(Scaffold(
+      backgroundColor: AppColors.bgMid,
+      body: Center(
+        child: Row(
+          key: const Key('veil-strip'),
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 상대가 덮어 둔 카드 / 지금 열어볼 수 있는 카드 / 내가 봉인한 카드
+            for (final build in <Widget Function()>[
+              () => const Stack(fit: StackFit.expand, children: [
+                    CardBack(size: cardW),
+                    VeilShimmer(radius: cardW * 0.16, phase: 0.0),
+                  ]),
+              () => const Stack(fit: StackFit.expand, children: [
+                    CardBack(size: cardW),
+                    // 열 수 있는 카드 — 배지 없이 어둠이 빨라지고 틈에서 불씨가 샌다.
+                    VeilShimmer(
+                        radius: cardW * 0.16,
+                        phase: 0.35,
+                        mood: VeilMood.restless),
+                  ]),
+              () => const Stack(fit: StackFit.expand, children: [
+                    PeekCardBack(
+                        card: PlayingCard(14, Suit.spades),
+                        size: cardW,
+                        veiled: true,
+                        veilPhase: 0.7),
+                    SealStamp(size: cardW),
+                  ]),
+            ])
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                child: SizedBox(
+                  width: cardW,
+                  height: CardFace.heightFor(cardW),
+                  child: build(),
+                ),
+              ),
+          ],
+        ),
+      ),
+    )));
+    await tester.pump();
+    for (var i = 0; i < 8; i++) {
+      await expectLater(find.byKey(const Key('veil-strip')),
+          matchesGoldenFile('goldens/anim_veil_f$i.png'));
+      await tester.pump(const Duration(milliseconds: 520));
     }
-    // 남은 연출·스낵바 타이머를 전부 소진한다(pumpAndSettle은 아바타 때문에 불가).
-    for (var i = 0; i < 6; i++) {
-      await tester.pump(const Duration(seconds: 1));
-    }
+  });
+
+  // 내 카드를 탭해 숨김 지정 → 봉인 도장 + 일렁거림(내 쪽은 숫자를 읽어야 하니 얕게).
+  testWidgets('seal stamp on my card', (tester) async {
+    await setScreen(tester, _portrait);
+    await tester.pumpWidget(_app(GameScreen(initialGame: _demoState())));
+    await tester.pump();
+    await tester.tap(labeled('cell-p0-2-1'), warnIfMissed: false);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400)); // 도장이 찍히는 연출 완료
+    await expectLater(
+        find.byType(GameScreen), matchesGoldenFile('goldens/shot_40_seal.png'));
   });
 
   // 로티 재생 확인용: 120ms 간격 10프레임을 떠서 갤러리에서 GIF처럼 돌려본다.
@@ -500,8 +573,8 @@ void main() {
             CardFace(card: PlayingCard(13, Suit.spades), size: 84),
             CardFace(card: PlayingCard(10, Suit.diamonds), size: 84),
             CardFace(card: PlayingCard(7, Suit.clubs), size: 84),
-            CardFace(card: PlayingCard(11, Suit.spades, isJoker: true), size: 84),
-            CardFace(card: PlayingCard(8, Suit.diamonds, isShield: true), size: 84),
+            CardFace(card: PlayingCard(2, Suit.hearts), size: 84),
+            CardFace(card: PlayingCard(9, Suit.spades), size: 84),
           ],
         ),
         ),
@@ -512,68 +585,19 @@ void main() {
   });
 
   testWidgets('shop portrait', (tester) async {
-    SharedPreferences.setMockInitialValues({});
     await setScreen(tester, _portrait);
-    final m = Monetization(purchases: StubPurchaseService(autoGrant: true));
-    await m.startAsync();
-    addTearDown(m.dispose);
-    await tester.pumpWidget(_app(MonetizationScope(
-      monetization: m,
-      child: const ShopScreen(),
-    )));
+    await tester.pumpWidget(_app(const ShopScreen()));
     await tester.pumpAndSettle();
-    await expectLater(find.byType(ShopScreen), matchesGoldenFile('goldens/shot_26_shop_portrait.png'));
+    await expectLater(
+        find.byType(ShopScreen), matchesGoldenFile('goldens/shot_26_shop_portrait.png'));
   });
 
   testWidgets('shop landscape', (tester) async {
-    SharedPreferences.setMockInitialValues({});
     await setScreen(tester, _landscape);
-    final m = Monetization(purchases: StubPurchaseService(autoGrant: true));
-    await m.startAsync();
-    addTearDown(m.dispose);
-    await tester.pumpWidget(_app(MonetizationScope(
-      monetization: m,
-      child: const ShopScreen(),
-    )));
+    await tester.pumpWidget(_app(const ShopScreen()));
     await tester.pumpAndSettle();
-    await expectLater(find.byType(ShopScreen), matchesGoldenFile('goldens/shot_27_shop_landscape.png'));
-  });
-
-  testWidgets('game with tokens portrait', (tester) async {
-    SharedPreferences.setMockInitialValues({});
-    await setScreen(tester, _portrait);
-    final m = Monetization(purchases: StubPurchaseService());
-    await m.startAsync();
-    addTearDown(m.dispose);
-    await tester.pumpWidget(_app(MonetizationScope(
-      monetization: m,
-      child: GameScreen(
-        initialState: _demoState(rules: const {PlayerId.p0: GameRules.standard}),
-      ),
-    )));
-    // 내 차례 골드 링이 무한 반복이라 pumpAndSettle 대신 고정 펌프.
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 700));
     await expectLater(
-        find.byType(GameScreen), matchesGoldenFile('goldens/shot_28_game_tokens.png'));
-  });
-
-  testWidgets('game with tokens landscape', (tester) async {
-    SharedPreferences.setMockInitialValues({});
-    await setScreen(tester, _landscape);
-    final m = Monetization(purchases: StubPurchaseService());
-    await m.startAsync();
-    addTearDown(m.dispose);
-    await tester.pumpWidget(_app(MonetizationScope(
-      monetization: m,
-      child: GameScreen(
-        initialState: _demoState(rules: const {PlayerId.p0: GameRules.standard}),
-      ),
-    )));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 700));
-    await expectLater(find.byType(GameScreen),
-        matchesGoldenFile('goldens/shot_29_game_tokens_landscape.png'));
+        find.byType(ShopScreen), matchesGoldenFile('goldens/shot_27_shop_landscape.png'));
   });
 
   // ── 언어: 영어 빌드가 실제로 영어로 나오는지 눈으로 확인하는 샷들 ──────────────
@@ -607,15 +631,8 @@ void main() {
   });
 
   testWidgets('shop english', (tester) async {
-    SharedPreferences.setMockInitialValues({});
     await setScreen(tester, _portrait);
-    final m = Monetization(purchases: StubPurchaseService());
-    await m.startAsync();
-    addTearDown(m.dispose);
-    await tester.pumpWidget(_app(
-      MonetizationScope(monetization: m, child: const ShopScreen()),
-      locale: 'en',
-    ));
+    await tester.pumpWidget(_app(const ShopScreen(), locale: 'en'));
     await tester.pumpAndSettle();
     await expectLater(
         find.byType(ShopScreen), matchesGoldenFile('goldens/shot_33_shop_en.png'));
@@ -634,7 +651,7 @@ void main() {
     await setScreen(tester, _portrait);
     final clode = buildPersonas(AppLocalizationsEn())[0];
     await tester.pumpWidget(
-        _app(GameScreen(initialState: _demoState(), persona: clode), locale: 'en'));
+        _app(GameScreen(initialGame: _demoState(), persona: clode), locale: 'en'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     await expectLater(find.byType(GameScreen),
@@ -652,11 +669,11 @@ void main() {
         matchesGoldenFile('goldens/shot_36_howtoplay_ko.png'));
   });
 
-  testWidgets('how to play english (attack page)', (tester) async {
+  testWidgets('how to play english (reveal page)', (tester) async {
     await setScreen(tester, _portrait);
     await tester.pumpWidget(_app(const HowToPlayScreen(), locale: 'en'));
     await tester.pumpAndSettle();
-    // 3번째 장(빼앗기) — 삽화가 가장 복잡한 장이라 넘침 검증에 좋다.
+    // 3번째 장(동시 공개) — 삽화가 가장 넓은 장이라 넘침 검증에 좋다.
     await tester.tap(find.text('Next'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Next'));

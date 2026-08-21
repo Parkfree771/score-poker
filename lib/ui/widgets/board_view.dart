@@ -1,12 +1,18 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../domain/card.dart';
 import '../../domain/game.dart';
+import '../../domain/hand.dart';
 import '../../domain/scoring.dart';
+import '../../l10n/app_localizations.dart';
+import '../hand_text.dart';
 import '../theme.dart';
 import 'card_back.dart';
 import 'card_face.dart';
 import 'table_decor.dart';
+import 'veil_shimmer.dart';
 
 /// 보드 칸의 표시 방식.
 ///
@@ -14,7 +20,13 @@ import 'table_decor.dart';
 /// 그중 지금 코인으로 열어볼 수 있는 카드를 [backPeekable](뒷면 + 골드 코인 마커)로,
 /// 나의 미공개 카드를 [peek](뒷면 + 들린 모서리로 나만 확인)으로,
 /// 숨김 지정된 내 카드를 [sealed](peek + 브라스 봉인 도장)로 그린다.
-enum CellLook { face, back, backPeekable, peek, sealed }
+/// 칸의 표현 방식.
+/// - [back] 이번 라운드에 놓여 아직 안 뒤집힌 상대 카드(곧 공개된다)
+/// - [backVeiled] 상대가 **비공개권으로 덮어 둔** 카드 — 검은 일렁거림
+/// - [backPeekable] 위와 같되 지금 내 코인으로 열어볼 수 있는 카드 — 어둠이 빨라지고
+///   틈에서 불씨가 샌다(배지를 붙이지 않는다)
+/// - [peek] 내 미공개 카드(홀카드 필) · [sealed] 내가 숨기기로 지정한 카드
+enum CellLook { face, back, backVeiled, backPeekable, peek, sealed }
 
 /// 게임 보드 — 방향 인식형.
 ///
@@ -64,7 +76,7 @@ class BoardView extends StatelessWidget {
   static const double _landscapeRatio = 1.36; // 가로: 원비율
   static const double _centerW = 66; // 가로 모드 중앙 점수 열 폭
   static const double _slotPadV = 1; // _BoardSlot 세로 패딩(위/아래 각각)
-  static const double _laneGap = 22; // 세로 모드에서 골드 선이 지나가는 틈
+  static const double _laneGap = 38; // 세로 모드에서 골드 선·점수 알약이 앉는 틈
 
   // 보드 높이는 셀 크기에서 그대로 계산된다 → IntrinsicHeight(서브트리를 두 번
   // 레이아웃한다)를 쓸 이유가 없다. 아래 값이 IntrinsicHeight가 재던 값과 같다.
@@ -114,6 +126,7 @@ class BoardView extends StatelessWidget {
       mine: owner == viewer,
       isNext: col == _nextCol(owner, row),
       highlighted: isHighlighted?.call(owner, row, col) ?? false,
+      veilPhase: veilPhaseFor(row, col),
       onTap: () => onCellTap(owner, row, col),
     );
   }
@@ -170,12 +183,18 @@ class BoardView extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               for (final i in [4, 3, 2, 1, 0]) _slot(opp, l, i, ratio: _portraitRatio),
-              const SizedBox(height: 22), // 골드 선이 지나가는 틈
+              const SizedBox(height: _laneGap), // 골드 선·점수 알약이 앉는 틈
               for (final i in [0, 1, 2, 3, 4]) _slot(viewer, l, i, ratio: _portraitRatio),
             ],
           ),
           // 레인이 위아래 대칭이라 Stack 중앙 = 틈 중앙. 알약이 골드 선 위에 얹힌다.
-          SizedBox(width: 50, child: FittedBox(fit: BoxFit.scaleDown, child: _pill(l))),
+          // **IgnorePointer 필수** — 알약은 카드 위에 겹쳐 그려지므로, 이게 없으면
+          // 알약에 가린 가운데 칸의 탭을 알약이 먹어버려 카드를 놓을 수 없다.
+          IgnorePointer(
+            child: SizedBox(
+                width: 78,
+                child: FittedBox(fit: BoxFit.scaleDown, child: _pill(l))),
+          ),
         ],
       ),
     );
@@ -243,9 +262,11 @@ class BoardView extends StatelessWidget {
                 SizedBox(
                   height: _rowH,
                   child: Center(
-                    child: SizedBox(
-                      width: _centerW - 6,
-                      child: FittedBox(fit: BoxFit.scaleDown, child: _pill(l)),
+                    child: IgnorePointer(
+                      child: SizedBox(
+                        width: _centerW - 6,
+                        child: FittedBox(fit: BoxFit.scaleDown, child: _pill(l)),
+                      ),
                     ),
                   ),
                 ),
@@ -269,6 +290,7 @@ class _BoardSlot extends StatelessWidget {
     required this.highlighted,
     required this.onTap,
     this.look = CellLook.face,
+    this.veilPhase = 0,
   });
 
   final PlacedCard? placed;
@@ -278,6 +300,10 @@ class _BoardSlot extends StatelessWidget {
   final bool mine;
   final bool isNext;
   final bool highlighted;
+
+  /// 검은 일렁거림의 시작 위상(칸마다 어긋나게).
+  final double veilPhase;
+
   final VoidCallback onTap;
 
   @override
@@ -309,27 +335,35 @@ class _BoardSlot extends StatelessWidget {
         ],
       );
     } else {
+      final phase = veilPhase;
       final content = switch (look) {
         CellLook.face => cachedCardFace(placed!.card, size),
         CellLook.back => cachedCardBack(size),
+        // 덮어 둔 카드는 그늘에 잠겨 일렁인다 — 아이콘으로 말하지 않는다.
+        CellLook.backVeiled => Stack(
+            fit: StackFit.expand,
+            children: [
+              cachedCardBack(size),
+              VeilShimmer(radius: size * 0.16, phase: phase),
+            ],
+          ),
+        // 열 수 있는 카드에는 **아무것도 붙이지 않는다**. 어둠이 빨라지고 틈에서
+        // 불씨가 새는 것으로 "여기에 코인을 쓸 수 있다"를 말한다.
         CellLook.backPeekable => Stack(
             fit: StackFit.expand,
             children: [
               cachedCardBack(size),
-              // "여기에 코인을 쓸 수 있다" — 우상단 골드 코인. 솔리드(희미 금지).
-              Positioned(
-                right: size * 0.06,
-                top: size * 0.06,
-                child: VeilCoin(size: size * 0.34, filled: true),
-              ),
+              VeilShimmer(
+                  radius: size * 0.16, phase: phase, mood: VeilMood.restless),
             ],
           ),
         CellLook.peek => PeekCardBack(card: placed!.card, size: size),
         CellLook.sealed => Stack(
             fit: StackFit.expand,
             children: [
-              PeekCardBack(card: placed!.card, size: size),
-              _SealStamp(size: size),
+              PeekCardBack(
+                  card: placed!.card, size: size, veiled: true, veilPhase: phase),
+              SealStamp(size: size),
             ],
           ),
       };
@@ -395,7 +429,7 @@ class _BoardSlot extends StatelessWidget {
 
 /// 비공개권 코인 — "숨기거나 열어볼 기회"의 물성 있는 표현.
 ///
-/// [filled]면 브라스 코인(잉크 눈감김 각인), 아니면 **쓴 자리**(파인 소켓).
+/// [filled]면 브라스 코인(잉크 마름모 각인), 아니면 **쓴 자리**(파인 소켓).
 /// 전부 불투명 단색 — 이 게임의 UI 원칙(반투명 금지)을 따른다.
 class VeilCoin extends StatelessWidget {
   const VeilCoin({super.key, required this.size, required this.filled, this.ring});
@@ -428,8 +462,7 @@ class VeilCoin extends StatelessWidget {
                       offset: const Offset(0, 1.5)),
                 ],
               ),
-              child: Icon(Icons.visibility_off_rounded,
-                  color: AppColors.ink, size: size * 0.58),
+              child: Center(child: _CoinMark(size: size * 0.42)),
             )
           : Container(
               key: const ValueKey('socket'),
@@ -450,13 +483,13 @@ class VeilCoin extends StatelessWidget {
 /// 지정하는 순간 브라스 실링 도장이 **쿵 찍히고**(1.7배에서 오버슛으로 안착),
 /// 골드 테두리가 카드를 감싼다. "이 카드는 공개 때 덮인 채 남는다"를 도장 하나로
 /// 말한다. 해제하면 도장째 사라진다(스위처가 즉시 제거).
-class _SealStamp extends StatelessWidget {
-  const _SealStamp({required this.size});
+class SealStamp extends StatelessWidget {
+  const SealStamp({super.key, required this.size});
   final double size;
 
   @override
   Widget build(BuildContext context) {
-    final d = size * 0.56; // 도장 지름
+    final d = size * 0.46; // 도장 지름 — 들린 모서리(랭크)를 가리지 않을 만큼만
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
       duration: const Duration(milliseconds: 320),
@@ -466,23 +499,22 @@ class _SealStamp extends StatelessWidget {
         return Stack(
           fit: StackFit.expand,
           children: [
-            // 카드를 감싸는 골드 링 + 글로우 (도장이 찍히며 함께 조여든다)
+            // 카드를 감싸는 골드 링 (도장이 찍히며 함께 조여든다).
+            // **글로우(boxShadow) 금지** — 속이 빈 상자의 그림자는 카드 안쪽까지
+            // 금빛으로 덮어버려서, 정작 "덮어 뒀다"는 어둠을 지워버린다.
             IgnorePointer(
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(size * 0.16),
                   border: Border.all(
                       color: AppColors.gold, width: 1.6 + 1.2 * t),
-                  boxShadow: [
-                    BoxShadow(
-                        color: AppColors.gold.withValues(alpha: 0.45 * t),
-                        blurRadius: 12),
-                  ],
                 ),
               ),
             ),
-            Center(
-              child: Opacity(
+            Align(
+              alignment: const Alignment(-0.15, -0.28),
+              child: 
+              Opacity(
                 opacity: t.clamp(0.0, 1.0),
                 child: Transform.rotate(
                   angle: -0.12 * (1 - t) - 0.06, // 살짝 비스듬히 찍힌 도장
@@ -507,14 +539,40 @@ class _SealStamp extends StatelessWidget {
                 offset: const Offset(0, 2)),
           ],
         ),
-        child: Icon(Icons.visibility_off_rounded,
-            color: AppColors.ink, size: d * 0.55),
+        child: Center(child: _CoinMark(size: d * 0.44)),
       ),
     );
   }
 }
 
-/// 라인 점수 알약: [상대 | 승패 바 | 나]. 점수/승패가 바뀔 때 탄성 있게 튕긴다.
+/// 브라스 각인 — 코인·봉인 도장에 새기는 마름모(테이블 프레임의 ◆와 같은 언어).
+/// 눈 아이콘은 쓰지 않는다: "숨겼다"는 아이콘이 아니라 카드 위의 어둠이 말한다.
+class _CoinMark extends StatelessWidget {
+  const _CoinMark({required this.size});
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => Transform.rotate(
+        angle: math.pi / 4,
+        child: Container(
+          width: size * 0.72,
+          height: size * 0.72,
+          decoration: BoxDecoration(
+            color: AppColors.ink,
+            borderRadius: BorderRadius.circular(size * 0.12),
+          ),
+        ),
+      );
+}
+
+/// 라인 점수 알약 — **족보 이름 + 숫자값**을 위(상대)/아래(나)로 겹쳐 보여준다.
+///
+/// 숫자만 있으면 "42가 25를 이긴다"는 알아도 **무엇으로 이기는지**를 모른다.
+/// 트리플로 앞서는 것과 하이카드로 앞서는 것은 남은 칸의 가치가 전혀 다르다.
+/// 하이카드는 이름을 적지 않는다(알려주는 게 없고 알약만 좁아진다).
+///
+/// 가림 룰에서는 [BoardView.lineCardsOf]가 **공개된 카드만** 넘기므로,
+/// 이 알약은 숨긴 정보를 절대 흘리지 않는다.
 class _ScorePill extends StatelessWidget {
   const _ScorePill({required this.mine, required this.theirs});
   final List<PlayingCard> mine;
@@ -530,14 +588,33 @@ class _ScorePill extends StatelessWidget {
     };
     final myScore = lineScore(mine);
     final oppScore = lineScore(theirs);
+    // 로컬라이제이션이 없는 환경(단독 위젯 테스트)에서는 이름 없이 숫자만 보여준다.
+    final l10n = Localizations.of<AppLocalizations>(context, AppLocalizations);
 
-    Widget num(int v, Color c, bool strong) => Text('$v',
-        style: TextStyle(
-          color: c,
-          fontWeight: strong ? FontWeight.w900 : FontWeight.w700,
-          fontSize: strong ? 17 : 14,
-          height: 1,
-        ));
+    Widget side(List<PlayingCard> cards, int score, Color c, bool strong) {
+      final name = (l10n == null || cards.isEmpty)
+          ? null
+          : handCategoryShort(l10n, evaluateHand(cards).category);
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          if (name != null) ...[
+            Text(name,
+                style: TextStyle(
+                    color: c, fontWeight: FontWeight.w800, fontSize: 10, height: 1)),
+            const SizedBox(width: 4),
+          ],
+          Text('$score',
+              style: TextStyle(
+                color: c,
+                fontWeight: strong ? FontWeight.w900 : FontWeight.w700,
+                fontSize: strong ? 15 : 13,
+                height: 1,
+              )),
+        ],
+      );
+    }
 
     return TweenAnimationBuilder<double>(
       // 점수/승패가 바뀌면 key가 바뀌어 0.7 → 1.0 탄성 스케일로 튕긴다.
@@ -547,24 +624,26 @@ class _ScorePill extends StatelessWidget {
       curve: Curves.elasticOut,
       builder: (context, v, child) => Transform.scale(scale: v, child: child),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: color, width: 2),
           boxShadow: [BoxShadow(color: color.withValues(alpha: 0.45), blurRadius: 10)],
         ),
-        child: Row(
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            num(oppScore, AppColors.oppPrimary, o == LineOutcome.lose),
+            // 위가 상대, 아래가 나 — 세로 보드의 위아래 배치와 같은 순서다.
+            side(theirs, oppScore, AppColors.oppPrimary, o == LineOutcome.lose),
             Container(
-              margin: const EdgeInsets.symmetric(horizontal: 6),
-              width: 3,
-              height: 12,
-              decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(2)),
+              margin: const EdgeInsets.symmetric(vertical: 3),
+              width: 30,
+              height: 2.5,
+              decoration:
+                  BoxDecoration(color: color, borderRadius: BorderRadius.circular(2)),
             ),
-            num(myScore, AppColors.mePrimary, o == LineOutcome.win),
+            side(mine, myScore, AppColors.mePrimary, o == LineOutcome.win),
           ],
         ),
       ),

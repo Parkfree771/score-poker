@@ -10,16 +10,14 @@ void main() {
   PlayingCard c(int rank, [Suit s = Suit.clubs]) => PlayingCard(rank, s);
 
   group('RULES.md §2.1 덱 구성', () {
-    test('54장 = 13랭크 × 4슈트 + 조커 2', () {
+    test('52장 = 13랭크 × 4슈트 (조커 없음)', () {
       final deck = Deck.standard();
-      expect(deck.remaining, 54);
-      final all = deck.draw(54);
-      expect(all.where((x) => x.isJoker).length, 2);
-      expect(all.where((x) => !x.isJoker).length, 52);
+      expect(deck.remaining, 52);
+      expect(deck.draw(52).length, 52);
     });
 
     test('모든 랭크가 정확히 4장씩', () {
-      final all = Deck.standard().draw(54).where((x) => !x.isJoker);
+      final all = Deck.standard().draw(52);
       for (final rank in Ranks.all) {
         expect(all.where((x) => x.rank == rank).length, 4, reason: 'rank $rank');
       }
@@ -91,7 +89,7 @@ void main() {
     });
   });
 
-  group('RULES.md §8.2 족보 성립 조건', () {
+  group('RULES.md §8.1~8.2 족보 성립 조건과 등급', () {
     test('스트레이트: 2 3 4 5 6 / A 2 3 4 5 / 10 J Q K A 모두 성립', () {
       for (final ranks in [
         [2, 3, 4, 5, 6],
@@ -142,7 +140,6 @@ void main() {
         HandCategory.fullHouse,
         HandCategory.fourOfAKind,
         HandCategory.straightFlush,
-        HandCategory.fiveOfAKind,
       ];
       expect(HandCategory.values, expected);
     });

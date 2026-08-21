@@ -2,7 +2,7 @@ import 'dart:math';
 
 import 'card.dart';
 
-/// 54장 덱(표준 포커 + 조커): 13랭크 × 4슈트(52장) + 조커 2장.
+/// 52장 덱: 13랭크 × 4슈트. (조커 없음 — 가림 룰은 와일드를 쓰지 않는다)
 class Deck {
   Deck(this._cards);
 
@@ -11,7 +11,7 @@ class Deck {
   int get remaining => _cards.length;
   bool get isEmpty => _cards.isEmpty;
 
-  /// 표준 54장 덱을 생성한다(셔플 전). 조커는 미지정 상태로 2장 포함.
+  /// 표준 52장 덱을 생성한다(셔플 전).
   factory Deck.standard() {
     final cards = <PlayingCard>[];
     for (final suit in Suit.values) {
@@ -19,8 +19,6 @@ class Deck {
         cards.add(PlayingCard(rank, suit));
       }
     }
-    cards.add(PlayingCard.undesignatedJoker());
-    cards.add(PlayingCard.undesignatedJoker());
     return Deck(cards);
   }
 

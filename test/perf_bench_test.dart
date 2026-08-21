@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:score_poker/domain/card.dart';
-import 'package:score_poker/domain/deck.dart';
 import 'package:score_poker/domain/game.dart';
 import 'package:score_poker/l10n/app_localizations.dart';
 import 'package:score_poker/ui/game_screen.dart';
@@ -16,10 +15,12 @@ import 'package:score_poker/ui/widgets/suit_glyphs.dart';
 /// 2배까지 부풀어서, 멀쩡한 코드를 회귀로 오진하게 된다(실제로 한 번 그랬다).
 /// 대신 같은 실행에서 잰 **기준선 대비 배수**를 본다 — 부하가 걸려도 배수는 유지된다.
 ///
-/// 기준 배수 (최적화 완료 시점):
-///   게임화면 세로 ≈ 기준선의 **1.8배**
-///   게임화면 가로 ≈ 기준선의 **1.2배**
-/// 이 배수가 뚜렷이 커지면 그때가 진짜 회귀다.
+/// 기준 배수 (가림 룰 화면으로 전환한 뒤 이 PC에서 5회 측정):
+///   게임화면 세로 ≈ 기준선의 **2.2~3.7배** (기준값 3.0)
+///   게임화면 가로 ≈ 기준선의 **1.2~2.9배** (기준값 2.5)
+/// **한 번 재고 판단하지 말 것.** 같은 코드로도 실행마다 위 범위를 오간다 —
+/// 한 판만 보고 "회귀"라고 부르면 멀쩡한 코드를 뜯게 된다(실제로 한 번 그럴 뻔했다).
+/// 여러 번 돌려 중앙값이 기준값을 뚜렷이 넘을 때가 진짜 회귀다.
 void main() {
   Widget app(Widget child) => MaterialApp(
         debugShowCheckedModeBanner: false,
@@ -30,22 +31,22 @@ void main() {
         home: child,
       );
 
-  GameState fullBoard() {
-    final s = GameState.custom(Deck.shuffled(seed: 3));
+  /// 15칸이 다 찬 판 + 손패 3장 — 가장 무거운 프레임.
+  ScoreGame fullBoard() {
+    final g = ScoreGame.deal(seed: 3);
     var r = 0;
     for (final p in PlayerId.values) {
       for (var row = 0; row < kRows; row++) {
         for (var col = 0; col < kCols; col++) {
-          s.fields[p]![row][col] =
-              PlacedCard(PlayingCard(2 + (r++ % 13), Suit.values[r % 4]), p);
+          g.fields[p]![row][col] = VeiledSlot(
+            PlayingCard(2 + (r++ % 13), Suit.values[r % 4]),
+            round: 0,
+            faceUp: (row + col) % 4 != 0, // 몇 칸은 뒷면으로 남긴다
+          );
         }
       }
     }
-    s.hands[PlayerId.p0]!.addAll([
-      for (var i = 0; i < 5; i++) PlayingCard(5 + i, Suit.hearts, isAttacker: i < 3),
-    ]);
-    s.current = PlayerId.p0;
-    return s;
+    return g;
   }
 
   Future<void> setScreen(WidgetTester tester, Size size) async {
@@ -173,13 +174,13 @@ void main() {
   }
 
   for (final (label, size, expected) in [
-    ('세로 430x930', const Size(430, 930), 1.8),
-    ('가로 1512x760', const Size(1512, 760), 1.2),
+    ('세로 430x930', const Size(430, 930), 3.0),
+    ('가로 1512x760', const Size(1512, 760), 2.5),
   ]) {
     testWidgets('BENCH 게임화면 리빌드 — $label', (tester) async {
       await setScreen(tester, size);
       final baseline = await measureBaseline(tester);
-      await tester.pumpWidget(app(GameScreen(initialState: fullBoard())));
+      await tester.pumpWidget(app(GameScreen(initialGame: fullBoard())));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
 

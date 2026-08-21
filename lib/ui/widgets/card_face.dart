@@ -15,7 +15,6 @@ String rankLabel(int rank) => switch (rank) {
     };
 
 const String _inkHex = '#121330';
-const String _goldHex = '#9A7A34'; // 앤티크 골드(쉴드 테두리)
 
 /// 카드 한 장: **lordicon 카드 프레임(SVG) 그대로** + 코너 랭크 + 가운데 무늬(작게).
 ///
@@ -34,7 +33,7 @@ class CardFace extends StatelessWidget {
     final w = size;
     final h = heightFor(size);
     final red = suitIsRed(card.suit);
-    final ink = card.isJoker ? AppColors.purple : (red ? AppColors.red : AppColors.dark);
+    final ink = red ? AppColors.red : AppColors.dark;
 
     return SizedBox(
       width: w,
@@ -59,58 +58,26 @@ class CardFace extends StatelessWidget {
               ),
             ),
           ),
-          // 카드 프레임 (lordicon 원본). 쉴드는 골드 외곽선.
+          // 카드 프레임 (lordicon 원본).
           Positioned.fill(
-            child: SvgPicture(
-              cardFrameLoader(card.isShield ? _goldHex : _inkHex),
-              fit: BoxFit.fill,
-            ),
+            child: SvgPicture(cardFrameLoader(_inkHex), fit: BoxFit.fill),
           ),
-          // 쉴드: 은은한 골드 바디 워시 + 방패 워터마크(정체성).
-          if (card.isShield) ...[
-            Positioned.fill(
-              child: Padding(
-                padding: EdgeInsets.all(w * 0.06),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(w * 0.12),
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          AppColors.goldSoft.withValues(alpha: 0.35),
-                          AppColors.gold.withValues(alpha: 0.14),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            Align(
-              alignment: const Alignment(0, -0.04),
-              child: Icon(Icons.shield, size: w * 0.64, color: AppColors.gold.withValues(alpha: 0.28)),
-            ),
-          ],
-          // 가운데 무늬 (조커는 원본 아트를 크게)
+          // 가운데 무늬
           Align(
-            alignment: Alignment(0, card.isJoker ? 0 : -0.02),
+            alignment: const Alignment(0, -0.02),
             child: SizedBox(
-              width: card.isJoker ? w * 0.74 : w * 0.38,
-              height: card.isJoker ? w * 0.74 : w * 0.38,
-              child: SvgPicture(card.isJoker ? jokerLoader : suitLoader(card.suit), fit: BoxFit.contain),
+              width: w * 0.38,
+              height: w * 0.38,
+              child: SvgPicture(suitLoader(card.suit), fit: BoxFit.contain),
             ),
           ),
-          // 코너 랭크 (조커는 글자 없음)
-          if (!card.isJoker) ...[
-            Positioned(left: w * 0.13, top: h * 0.04, child: _rank(ink, w)),
-            Positioned(
-              right: w * 0.13,
-              bottom: h * 0.04,
-              child: Transform.rotate(angle: 3.14159, child: _rank(ink, w)),
-            ),
-          ],
+          // 코너 랭크
+          Positioned(left: w * 0.13, top: h * 0.04, child: _rank(ink, w)),
+          Positioned(
+            right: w * 0.13,
+            bottom: h * 0.04,
+            child: Transform.rotate(angle: 3.14159, child: _rank(ink, w)),
+          ),
         ],
       ),
     );

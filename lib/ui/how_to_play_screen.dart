@@ -4,6 +4,8 @@ import '../domain/card.dart';
 import '../l10n/app_localizations.dart';
 import 'rules_screen.dart';
 import 'theme.dart';
+import 'widgets/board_view.dart';
+import 'widgets/card_back.dart';
 import 'widgets/card_face.dart';
 
 /// 첫 실행 튜토리얼 — 5장으로 끝나는 "1분 설명".
@@ -30,9 +32,9 @@ class _HowToPlayScreenState extends State<HowToPlayScreen> {
   List<_Page> _pages(AppLocalizations l10n) => [
         _Page(l10n.tutGoalTitle, l10n.tutGoalBody, const _GoalArt()),
         _Page(l10n.tutPlaceTitle, l10n.tutPlaceBody, const _PlaceArt()),
-        _Page(l10n.tutAttackTitle, l10n.tutAttackBody, const _AttackArt()),
-        _Page(l10n.tutJokerTitle, l10n.tutJokerBody, const _JokerArt()),
-        _Page(l10n.tutFoldTitle, l10n.tutFoldBody, const _FoldArt()),
+        _Page(l10n.tutRevealTitle, l10n.tutRevealBody, const _RevealArt()),
+        _Page(l10n.tutVeilTitle, l10n.tutVeilBody, const _VeilArt()),
+        _Page(l10n.tutPeekTitle, l10n.tutPeekBody, const _PeekArt()),
       ];
 
   @override
@@ -235,7 +237,7 @@ class _GoalArt extends StatelessWidget {
   }
 }
 
-/// 손패에서 한 장을 골라 내 줄에 놓는 그림.
+/// 손패에서 고른 카드가 **뒷면으로** 내 줄에 놓이는 그림.
 class _PlaceArt extends StatelessWidget {
   const _PlaceArt();
 
@@ -250,72 +252,74 @@ class _PlaceArt extends StatelessWidget {
         const SizedBox(width: 14),
         Icon(Icons.arrow_forward_rounded, color: AppColors.gold.withValues(alpha: 0.8)),
         const SizedBox(width: 14),
-        Container(
-          width: 52,
-          height: 66,
-          decoration: BoxDecoration(
-            color: AppColors.slotNext,
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: AppColors.gold, width: 1.4),
-          ),
-        ),
+        const CardBack(size: 52),
       ],
     );
   }
 }
 
-/// 같은 숫자로 상대 카드를 빼앗아 오면 쉴드가 된다.
-class _AttackArt extends StatelessWidget {
-  const _AttackArt();
+/// 라운드가 끝나면 그 라운드에 놓인 카드가 양쪽 동시에 뒤집힌다.
+class _RevealArt extends StatelessWidget {
+  const _RevealArt();
 
   @override
   Widget build(BuildContext context) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const CardFace(card: PlayingCard(7, Suit.spades, isAttacker: true), size: 46),
-        const SizedBox(width: 10),
-        Icon(Icons.bolt_rounded, color: AppColors.red.withValues(alpha: 0.9), size: 22),
-        const SizedBox(width: 10),
-        const CardFace(card: PlayingCard(7, Suit.hearts), size: 46),
-        const SizedBox(width: 10),
-        Icon(Icons.arrow_forward_rounded,
-            color: AppColors.gold.withValues(alpha: 0.8), size: 20),
-        const SizedBox(width: 10),
-        const CardFace(card: PlayingCard(7, Suit.hearts, isShield: true), size: 46),
+        const CardBack(size: 46),
+        const SizedBox(width: 6),
+        const CardBack(size: 46),
+        const SizedBox(width: 14),
+        Icon(Icons.autorenew_rounded, color: AppColors.gold.withValues(alpha: 0.9), size: 22),
+        const SizedBox(width: 14),
+        const CardFace(card: PlayingCard(10, Suit.diamonds), size: 46),
+        const SizedBox(width: 6),
+        const CardFace(card: PlayingCard(10, Suit.clubs), size: 46),
       ],
     );
   }
 }
 
-class _JokerArt extends StatelessWidget {
-  const _JokerArt();
-
-  @override
-  Widget build(BuildContext context) => const Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          CardFace(card: PlayingCard(14, Suit.spades, isJoker: true), size: 62),
-          SizedBox(width: 12),
-          CardFace(card: PlayingCard(14, Suit.spades, isJoker: true), size: 62),
-        ],
-      );
-}
-
-class _FoldArt extends StatelessWidget {
-  const _FoldArt();
+/// 비공개권 코인 3개 — 쓰면 빈 소켓이 남는다.
+class _VeilArt extends StatelessWidget {
+  const _VeilArt();
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 96,
-      height: 96,
-      decoration: BoxDecoration(
-        color: AppColors.panel,
-        shape: BoxShape.circle,
-        border: Border.all(color: AppColors.stroke),
-      ),
-      child: const Icon(Icons.flag_rounded, size: 44, color: AppColors.goldSoft),
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var i = 0; i < 3; i++)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 5),
+            child: VeilCoin(size: 34, filled: i < 2, ring: AppColors.mePrimary),
+          ),
+      ],
+    );
+  }
+}
+
+/// 코인 1개를 태워 상대가 숨긴 카드를 열어본다.
+class _PeekArt extends StatelessWidget {
+  const _PeekArt();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const VeilCoin(size: 30, filled: true, ring: AppColors.mePrimary),
+        const SizedBox(width: 12),
+        Icon(Icons.arrow_forward_rounded,
+            color: AppColors.gold.withValues(alpha: 0.8), size: 20),
+        const SizedBox(width: 12),
+        const CardBack(size: 46),
+        const SizedBox(width: 10),
+        const Icon(Icons.visibility_rounded, color: AppColors.gold, size: 22),
+        const SizedBox(width: 10),
+        const CardFace(card: PlayingCard(14, Suit.spades), size: 46),
+      ],
     );
   }
 }

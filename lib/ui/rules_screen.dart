@@ -9,9 +9,9 @@ import 'widgets/card_face.dart';
 
 /// 규칙 전문. 게임 안에서 언제든 다시 볼 수 있어야 한다.
 ///
-/// **`docs/RULES.md`의 요약이 아니라 플레이에 필요한 전부다.** 이 게임은 규칙이 특이해서
-/// (58장 덱, "1"과 A가 별개, 빼앗기, 쉴드) 설명 없이 첫 판을 두면 무슨 일이 일어나는지
-/// 모른다 — 특히 카드 게임 관습이 다른 나라 사용자에게 그렇다.
+/// **`docs/RULES.md`의 요약이 아니라 플레이에 필요한 전부다.** 이 게임은 정보를 가리는
+/// 규칙(뒷면 배치·동시 공개·비공개권)이 핵심이라, 설명 없이 첫 판을 두면 무슨 일이
+/// 일어나는지 모른다 — 특히 카드 게임 관습이 다른 나라 사용자에게 그렇다.
 class RulesScreen extends StatelessWidget {
   const RulesScreen({super.key});
 
@@ -48,27 +48,23 @@ class RulesScreen extends StatelessWidget {
                     body: l10n.rulesSetupBody,
                   ),
                   _Section(
-                    icon: Icons.refresh_rounded,
-                    title: l10n.rulesTurnTitle,
-                    body: l10n.rulesTurnBody,
+                    icon: Icons.timer_rounded,
+                    title: l10n.rulesRoundTitle,
+                    body: l10n.rulesRoundBody,
+                    note: l10n.rulesRoundNote,
                   ),
                   _Section(
-                    icon: Icons.bolt_rounded,
-                    title: l10n.rulesAttackTitle,
-                    body: l10n.rulesAttackBody,
-                    note: l10n.rulesAttackBonus,
-                  ),
-                  _Section(
-                    icon: Icons.shield_rounded,
-                    title: l10n.rulesShieldTitle,
-                    body: l10n.rulesShieldBody,
+                    icon: Icons.visibility_rounded,
+                    title: l10n.rulesRevealTitle,
+                    body: l10n.rulesRevealBody,
                     accent: AppColors.gold,
                   ),
                   _Section(
-                    icon: Icons.auto_awesome_rounded,
-                    title: l10n.rulesJokerTitle,
-                    body: l10n.rulesJokerBody,
-                    accent: AppColors.purple,
+                    icon: Icons.lock_rounded,
+                    title: l10n.rulesVeilTitle,
+                    body: l10n.rulesVeilBody,
+                    note: l10n.rulesVeilNote,
+                    accent: AppColors.gold,
                   ),
                   _Section(
                     icon: Icons.leaderboard_rounded,
@@ -85,12 +81,6 @@ class RulesScreen extends StatelessWidget {
                     icon: Icons.done_all_rounded,
                     title: l10n.rulesEndTitle,
                     body: l10n.rulesEndBody,
-                  ),
-                  _Section(
-                    icon: Icons.local_fire_department_rounded,
-                    title: l10n.rulesTokenTitle,
-                    body: l10n.rulesTokenBody,
-                    accent: AppColors.red,
                   ),
                 ],
               ),
@@ -189,8 +179,8 @@ class _DeckSample extends StatelessWidget {
           CardFace(card: PlayingCard(10, Suit.hearts), size: 46),
           CardFace(card: PlayingCard(11, Suit.diamonds), size: 46),
           CardFace(card: PlayingCard(14, Suit.clubs), size: 46),
-          CardFace(card: PlayingCard(7, Suit.spades, isShield: true), size: 46),
-          CardFace(card: PlayingCard(12, Suit.hearts, isJoker: true), size: 46),
+          CardFace(card: PlayingCard(7, Suit.spades), size: 46),
+          CardFace(card: PlayingCard(12, Suit.hearts), size: 46),
         ],
       ),
     );

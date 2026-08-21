@@ -1,11 +1,11 @@
-import 'package:flutter/material.dart';
-
 import 'dart:async';
 import 'dart:math';
 
+import 'package:flutter/material.dart';
+
 import '../audio/sfx.dart';
 import '../data/records_store.dart';
-import '../domain/ai_strategy.dart';
+import '../domain/ai.dart';
 import '../domain/card.dart';
 import '../domain/game.dart';
 import '../domain/hand.dart';
@@ -13,142 +13,173 @@ import '../domain/records.dart';
 import '../domain/scoring.dart';
 import '../feedback/haptics.dart';
 import '../l10n/app_localizations.dart';
-import '../monetization/monetization.dart';
 import 'hand_text.dart';
-import 'move_error_text.dart';
-import 'shop_screen.dart';
 import 'personas.dart';
 import 'theme.dart';
 import 'widgets/board_view.dart';
 import 'widgets/card_back.dart';
 import 'widgets/card_cell.dart';
-import 'widgets/card_face.dart';
 import 'widgets/emote_bubble.dart';
 import 'widgets/flying_card.dart';
 import 'widgets/impact_effects.dart';
-import 'widgets/opening_sequence.dart';
 import 'widgets/table_decor.dart';
 
-/// 게임 플레이 화면(핫시트 MVP): 선공 정하기 → 보드 플레이.
+/// 게임 화면 — 상대 스트립 / 펠트 테이블(덱|보드|우측 열) / 내 스트립+손패.
+/// 룰은 `domain/game.dart` 참고.
 ///
-/// 레이아웃(위→아래):
-///   [상단바] · [상대 스트립(뒷면 손패)] · [보드(가운데 점수 열)] · [턴 배너] · [내 스트립] · [내 손패] · [액션]
+/// 흐름: 딜링 연출 → 타이머(60초) 안에 3장 배치 + 숨김 지정/변경 + 상대 숨김 열어보기
+/// → 타이머 종료 시 **동시 공개**(둘 다 일찍 끝내면 타이머가 5초로 줄어 마지막 수정 창만
+/// 남는다) → 다음 라운드 자동 진행 → 5라운드 후 최후 공개·정산.
 class GameScreen extends StatefulWidget {
-  const GameScreen({super.key, this.seed, this.initialState, this.persona});
+  const GameScreen({super.key, this.seed, this.persona, this.initialGame});
+
   final int? seed;
 
-  /// 테스트/스크린샷 전용: 지정 시 첫 화면 상태로 사용(새 게임 버튼은 무시).
-  final GameState? initialState;
-
-  /// 대전 상대 캐릭터. null이면 무성격 기본 AI(크로드 기풍)로 둔다.
+  /// 대전 상대 캐릭터. null이면 이름/색만 기본값이고 대사가 없다(테스트·스크린샷용).
   final Persona? persona;
+
+  /// 테스트·스크린샷 전용 **정지 화면**. 주입하면 딜링 연출·타이머·AI가 돌지 않고
+  /// 그 상태 그대로 그려진다(연출 타이머가 없어야 캡처가 재현된다). 기록도 남기지 않는다.
+  final ScoreGame? initialGame;
 
   @override
   State<GameScreen> createState() => _GameScreenState();
 }
 
+enum _Phase { dealing, placing, revealing, finished }
+
 class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
-  late GameState state;
+  static const me = PlayerId.p0;
+  static const ai = PlayerId.p1;
+  static const roundSeconds = 60.0;
+
+  /// 둘 다 배치를 끝냈을 때 남겨줄 최종 수정 시간.
+  static const lastCallSeconds = 5.0;
+
+  late ScoreGame g;
+
+  /// 상대 AI. 페르소나의 기풍(크로드/헷/제나)이 곧 행동 계수다.
+  late final VeiledAi _ai =
+      VeiledAi(widget.persona?.style ?? AiStyle.clode, seed: widget.seed);
+
+  /// 타임업 때 **내 남은 배치**를 대신 채워 주는 손. 성격이 없어야 하므로 기본형.
+  late final VeiledAi _autoPlay = VeiledAi(AiStyle.clode, seed: widget.seed);
+
+  _Phase _phase = _Phase.dealing;
   int? selected;
-
-  /// 토큰 사용 대기 모드. 켜져 있으면 다음 탭이 "카드 배치"가 아니라 "토큰 대상 지정"이다.
-  /// (쉴드 = 내 필드의 카드를 탭 / 공격 = 내 손패의 카드를 탭)
-  TokenKind? _tokenMode;
-
-  // 나는 항상 P0. 화면은 절대 뒤집히지 않는다(내 필드=아래/한쪽 고정).
-  static const PlayerId me = PlayerId.p0;
-  static const PlayerId ai = PlayerId.p1;
-
-  // 애니메이션 상태
-  bool _animating = false;
   int? _flyingHandIndex;
+  final Set<(int, int)> _hideMarks = {};
+  MatchResult? _result;
+  String? _banner; // 공개/최후 공개 배너 문구
+  int _dealtMine = 0; // 딜링 연출 중 보이는 내 손패 장수
+  int _dealtOpp = 0;
+  int _seq = 0;
 
-  /// 빼앗기 연출 중 숨기는 칸 — 빼앗은 카드는 **날아와 안착하는 순간**에 나타나야 한다.
-  /// (규칙 반영은 명중 즉시라, 숨기지 않으면 비행 중에 목적지에 미리 보인다)
-  ({PlayerId owner, int row, int col})? _concealedCell;
-  final Map<String, GlobalKey> _boardKeys = {};
+  /// 상대 캐릭터 대사(말풍선). 이모트와 같은 자리를 쓰므로 대사가 우선한다.
+  String? _oppSpeech;
+  int _speechSeq = 0;
 
-  /// 손패 슬롯별 GlobalKey **풀**. 위치(index)마다 하나씩 재사용한다.
-  ///
-  /// 이전에는 build()에서 매번 `GlobalKey()`를 새로 만들었는데, 키가 바뀌면
-  /// `Widget.canUpdate`가 실패해 손패 카드의 엘리먼트가 **매 프레임 파괴·재생성**됐다.
-  /// (성능뿐 아니라 애니메이션 상태도 리셋된다)
+  /// 결과를 랭킹 기록에 저장했는가(판당 1회).
+  bool _recorded = false;
+
+  // ---- 이모트 ----
+  bool _emoteOpen = false;
+  String? _myEmote;
+  String? _oppEmote;
+  int _emoteSeq = 0;
+
+  /// 남은 시간. **ValueNotifier인 이유**: setState로 매 0.1초 화면 전체를 다시
+  /// 그리면 웹에서 눈에 띄게 버벅인다 — 타이머 바 위젯만 이 값을 구독한다.
+  final ValueNotifier<double> _time = ValueNotifier(roundSeconds);
+  Timer? _ticker;
+  int _lastWholeSecond = roundSeconds.ceil();
+
+  final Random _rng = Random();
+  final _deckKey = GlobalKey();
+  final _oppHandKey = GlobalKey();
   final List<GlobalKey> _handKeys = [];
+  final Map<String, GlobalKey> _cellKeys = {};
 
+  /// 손패 칸 키. 칸 키와 마찬가지로 디버그 라벨을 붙여 테스트가 집어낼 수 있게 한다.
   GlobalKey _handKey(int i) {
     while (_handKeys.length <= i) {
-      _handKeys.add(GlobalKey());
+      _handKeys.add(GlobalKey(debugLabel: 'hand-${_handKeys.length}'));
     }
     return _handKeys[i];
   }
 
-  final GlobalKey _oppHandKey = GlobalKey();
-  final GlobalKey _deckKey = GlobalKey();
-  final GlobalKey _handAreaKey = GlobalKey();
-  final GlobalKey _graveKey = GlobalKey();
-
-  /// 버린 카드 무덤(UI 연출용): 오프닝 오픈 카드 + 제거된 카드가 쌓인다.
-  final List<PlayingCard> _grave = [];
-
-  // ---- 감정 표현(이모트) ----
-  bool _emoteOpen = false; // 피커 펼침 여부
-  String? _myEmote; // 내가 보낸 이모트(내 아바타 옆 말풍선)
-  String? _oppEmote; // 상대가 보낸 이모트(상대 아바타 옆 말풍선)
-  int _emoteSeq = 0; // 늦게 도착한 숨김 타이머 무효화용
-
-  // ---- 페르소나(상대 AI 캐릭터) ----
-  late final HeuristicAi _ai =
-      HeuristicAi(widget.persona?.style ?? AiStyle.clode, seed: widget.seed ?? 7);
-  late final Random _speechRng = Random(widget.seed ?? 7);
-  String? _oppSpeech; // 상대 대사 말풍선
-  int _speechSeq = 0;
-
-  GlobalKey _boardKey(PlayerId owner, int row, int col) =>
-      _boardKeys.putIfAbsent('${owner.name}-$row-$col', () => GlobalKey());
+  /// 칸 키. 디버그 라벨을 붙여 두면 위젯 테스트가 특정 칸을 찾아 탭할 수 있다.
+  GlobalKey _cellKey(PlayerId p, int r, int c) => _cellKeys.putIfAbsent(
+      '${p.name}-$r-$c', () => GlobalKey(debugLabel: 'cell-${p.name}-$r-$c'));
 
   @override
   void initState() {
     super.initState();
-    if (widget.initialState != null) {
-      state = widget.initialState!;
+    g = widget.initialGame ?? ScoreGame.deal(seed: widget.seed);
+    if (_frozen) {
+      // 주입된 상태를 그대로 보여준다 — 진행은 하지 않는다.
+      _dealtMine = g.hands[me]!.length;
+      _dealtOpp = g.hands[ai]!.length;
+      if (g.isFinished) {
+        _phase = _Phase.finished;
+        _result = g.judge();
+      } else {
+        _phase = _Phase.placing;
+        // 캐릭터가 있는 판이면 인사만은 한다(스크린샷에서 말풍선이 보여야 한다).
+        // **첫 줄로 고정** — 무작위로 고르면 캡처가 실행마다 달라져 골든이 흔들린다.
+        final hello = _lines?.greeting;
+        if (hello != null && hello.isNotEmpty) {
+          WidgetsBinding.instance
+              .addPostFrameCallback((_) => _say([hello.first]));
+        }
+      }
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) => _startRound(dealt: 0));
+  }
+
+  @override
+  void dispose() {
+    _seq++;
+    _ticker?.cancel();
+    _time.dispose();
+    super.dispose();
+  }
+
+  /// 주입된 상태를 보여 주는 정지 모드인가.
+  bool get _frozen => widget.initialGame != null;
+
+  void _restart() {
+    if (_frozen) return;
+    _seq++;
+    _ticker?.cancel();
+    setState(() {
+      g = ScoreGame.deal(seed: widget.seed);
+      _phase = _Phase.dealing;
       selected = null;
       _flyingHandIndex = null;
-      _animating = false;
-      if (state.phase == GamePhase.playing && widget.persona != null) {
-        // 오프닝 없이 바로 판이 열리는 경우(스크린샷 등)에도 인사는 한다.
-        WidgetsBinding.instance
-            .addPostFrameCallback((_) => _personaSay(widget.persona!.lines.greeting));
-      }
-    } else {
-      _start();
-    }
+      _hideMarks.clear();
+      _result = null;
+      _banner = null;
+      _dealtMine = 0;
+      _dealtOpp = 0;
+      _emoteOpen = false;
+      _myEmote = null;
+      _oppEmote = null;
+      _oppSpeech = null;
+      _speechSeq++;
+      _recorded = false;
+      _emoteSeq++;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _startRound(dealt: 0));
   }
 
-  void _start() {
-    // 토큰 사용 상한은 **규칙**이므로 언제나 건다. 실제로 쓸 수 있는지는 지갑
-    // 보유량이 따로 결정한다(도메인은 결제를 모른다). AI(p1)에게는 주지 않는다.
-    state = GameState.deal(seed: widget.seed, rules: const {me: GameRules.standard});
-    selected = null;
-    _tokenMode = null;
-    _flyingHandIndex = null;
-    _concealedCell = null;
-    _animating = false;
-    _recorded = false;
-    _grave.clear();
-    _emoteOpen = false;
-    _myEmote = null;
-    _oppEmote = null;
-    _emoteSeq++;
-    _oppSpeech = null;
-    _speechSeq++;
-  }
-
-  /// 상대 캐릭터가 상황 대사를 말한다(약 3초 뒤 사라짐).
-  void _personaSay(List<String> lines) {
-    if (widget.persona == null || lines.isEmpty || !mounted) return;
+  /// 상대 캐릭터가 상황 대사를 말한다(약 3초 뒤 사라짐). 페르소나가 없으면 조용하다.
+  void _say(List<String>? lines) {
+    if (lines == null || lines.isEmpty || !mounted) return;
     setState(() {
-      _oppSpeech = lines[_speechRng.nextInt(lines.length)];
-      _oppEmote = null; // 대사와 이모트가 같은 자리를 쓰므로 대사가 우선
+      _oppSpeech = lines[_rng.nextInt(lines.length)];
+      _oppEmote = null; // 대사와 이모트가 같은 자리를 쓴다 — 대사가 우선
     });
     final seq = ++_speechSeq;
     Future<void>.delayed(const Duration(milliseconds: 3200), () {
@@ -156,25 +187,410 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     });
   }
 
-  /// 효과음 재생. 스코프가 없는 환경(위젯 테스트·스크린샷)에서는 조용히 무시된다.
+  PersonaLines? get _lines => widget.persona?.lines;
+
+  /// 끝난 판을 로컬 기록(랭킹)에 한 번 저장한다. 저장 실패는 게임에 영향을 주지 않는다.
+  Future<void> _recordResult(MatchResult res) async {
+    if (_recorded || _frozen) return;
+    _recorded = true;
+    try {
+      await RecordsStore.addRecord(GameRecord(
+        playedAt: DateTime.now(),
+        myScore: res.myTotal,
+        oppScore: res.opponentTotal,
+        outcome: res.outcome,
+      ));
+    } on Object {
+      // 저장소를 못 쓰는 환경(테스트 등)에서도 판은 끝나야 한다.
+    }
+  }
+
   void _playSfx(Sfx sfx) {
     if (!mounted) return;
     context.getInheritedWidgetOfExactType<SfxScope>()?.notifier?.play(sfx);
   }
 
-  /// 햅틱 재생. 스코프가 없는 환경에서는 조용히 무시된다.
-  void _haptic(Haptic haptic) {
+  void _haptic(Haptic h) {
     if (!mounted) return;
-    context.getInheritedWidgetOfExactType<HapticScope>()?.notifier?.play(haptic);
+    context.getInheritedWidgetOfExactType<HapticScope>()?.notifier?.play(h);
   }
 
-  /// 결과 효과음 재생 여부(판당 1회).
-  bool _resultSoundDone = false;
+  Rect? _rectFor(GlobalKey? key) {
+    final box = key?.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return null;
+    return box.localToGlobal(Offset.zero) & box.size;
+  }
 
-  void _maybePlayResultSound() {
-    if (!state.isFinished || _resultSoundDone) return;
-    _resultSoundDone = true;
-    switch (state.result(me).outcome) {
+  Future<void> _fly(GlobalKey? from, GlobalKey? to, PlayingCard card,
+      {bool faceDown = false, int ms = 300}) async {
+    final f = _rectFor(from), t = _rectFor(to);
+    if (f == null || t == null || !mounted) return;
+    await flyCard(
+      overlay: Overlay.of(context),
+      vsync: this,
+      from: f,
+      to: t,
+      card: card,
+      faceDown: faceDown,
+      duration: Duration(milliseconds: ms),
+    );
+  }
+
+  void _snack(String msg) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(msg), duration: const Duration(seconds: 2)));
+  }
+
+  // ---- 라운드 진행 ----
+
+  /// [dealt]: 딜링 연출 없이 이미 보여도 되는 내 손패 장수(라운드 보충 시 = 기존 장수).
+  Future<void> _startRound({required int dealt}) async {
+    if (!mounted) return;
+    final seq = _seq;
+    setState(() {
+      _phase = _Phase.dealing;
+      selected = null;
+      _hideMarks.clear();
+      _dealtMine = dealt;
+      _dealtOpp = dealt;
+    });
+    await _dealAnimation(seq);
+    if (!mounted || seq != _seq) return;
+    _time.value = roundSeconds;
+    _lastWholeSecond = roundSeconds.ceil();
+    setState(() => _phase = _Phase.placing);
+    if (g.round == 0) _say(_lines?.greeting);
+    _scheduleAi(seq);
+    _ticker?.cancel();
+    _ticker = Timer.periodic(const Duration(milliseconds: 100), (_) {
+      if (!mounted || seq != _seq) return;
+      // 화면 전체 setState 금지 — 타이머 바만 이 값을 구독한다(버벅임 방지).
+      _time.value = (_time.value - 0.1).clamp(0, roundSeconds);
+      final whole = _time.value.ceil();
+      if (whole != _lastWholeSecond) {
+        _lastWholeSecond = whole;
+        if (whole <= 3 && whole > 0) _haptic(Haptic.select); // 초읽기
+      }
+      if (_time.value <= 0) _onTimeUp(seq);
+    });
+  }
+
+  /// 덱에서 카드가 서로에게 날아가는 딜링 연출.
+  /// 소리는 **카드가 안착하는 순간마다** "착" — 받는 타이밍과 리듬이 맞아야 한다.
+  Future<void> _dealAnimation(int seq) async {
+    final total = g.hands[me]!.length;
+    if (_dealtMine >= total) return;
+    // 상대/나 번갈아 한 장씩. 손패 슬롯은 투명하게 이미 자리를 잡고 있어서
+    // 비행이 실제 슬롯 위치에 정확히 안착한다.
+    //
+    // **소리는 비행이 끝나는 프레임에 낸다**(flyCard의 Future가 안착 프레임에
+    // 완료된다). 카드가 손에 닿는 순간과 "착"이 어긋나면 딜링 전체가 싸구려로 들린다.
+    for (var i = _dealtMine; i < total; i++) {
+      unawaited(
+          _fly(_deckKey, _oppHandKey, g.hands[ai]![i], faceDown: true, ms: 240)
+              .then((_) {
+        if (!mounted || seq != _seq) return;
+        // 상대에게 가는 카드는 **무음**. 내 카드와 100ms 차로 붙어 있어서
+        // 소리를 같이 내면 두 발이 겹쳐 뭉개진다 — 딜링의 박자는 내 손이 잡는다.
+        setState(() => _dealtOpp = i + 1);
+      }));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      if (!mounted || seq != _seq) return;
+      unawaited(_fly(_deckKey, _handKey(i), g.hands[me]![i], ms: 240).then((_) {
+        if (!mounted || seq != _seq) return;
+        setState(() => _dealtMine = i + 1);
+        // 내 카드만 운다. 손끝의 톡까지 같이, 안착 프레임에 정확히.
+        _playSfx(Sfx.cardPlace);
+        _haptic(Haptic.select);
+      }));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      if (!mounted || seq != _seq) return;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    if (mounted && seq == _seq) {
+      setState(() {
+        _dealtMine = total;
+        _dealtOpp = total;
+      });
+    }
+  }
+
+  /// AI는 라운드 시작에 3장을 계획하고 타이머 중간중간 실제로 놓는다 —
+  /// 내 눈에는 뒷면 카드가 실시간으로 깔린다(위치가 곧 정보 = 순서 심리전).
+  void _scheduleAi(int seq) {
+    final plan = _ai.plan(g, ai)
+      ..sort((a, b) => b.handIndex.compareTo(a.handIndex)); // 인덱스 안전 순서
+    var delayMs = 2000 + _rng.nextInt(3000);
+    for (final m in plan) {
+      final d = delayMs;
+      delayMs += 3000 + _rng.nextInt(5000);
+      Future<void>.delayed(Duration(milliseconds: d), () async {
+        if (!mounted || seq != _seq || _phase != _Phase.placing) return;
+        if (m.handIndex >= g.hands[ai]!.length || g.leftToPlace(ai) <= 0) return;
+        if (g.fields[ai]![m.row][m.col] != null) return;
+        final card = g.hands[ai]![m.handIndex];
+        await _fly(_oppHandKey, _cellKey(ai, m.row, m.col), card, faceDown: true);
+        if (!mounted || seq != _seq || _phase != _Phase.placing) return;
+        setState(() => g.place(ai, m.handIndex, m.row, m.col));
+        _playSfx(Sfx.cardPlace);
+        _afterPlacement(seq);
+      });
+    }
+    // AI의 열어보기: 내가 지난 라운드에 숨긴 카드가 있으면 중반쯤 하나 깐다.
+    Future<void>.delayed(Duration(milliseconds: 6000 + _rng.nextInt(6000)), () {
+      if (!mounted || seq != _seq || _phase != _Phase.placing) return;
+      final target = _ai.peek(g, ai);
+      if (target == null) return;
+      g.peek(ai, target.$1, target.$2);
+      _playSfx(Sfx.attackHit);
+      _haptic(Haptic.impact);
+      setState(() {});
+      _snack(AppLocalizations.of(context).vlOppPeeked);
+      _say(_lines?.peek);
+      final rect = _rectFor(_cellKey(me, target.$1, target.$2));
+      if (rect != null && mounted) {
+        unawaited(hitFlash(overlay: Overlay.of(context), vsync: this, at: rect));
+      }
+    });
+  }
+
+  /// 타임업: 남은 배치를 자동으로 채우고 동시 공개.
+  void _onTimeUp(int seq) {
+    _ticker?.cancel();
+    if (!mounted || seq != _seq || _phase != _Phase.placing) return;
+    var autoMine = false;
+    for (final p in [me, ai]) {
+      while (g.leftToPlace(p) > 0) {
+        final plan = (p == me ? _autoPlay : _ai).plan(g, p)
+          ..sort((a, b) => b.handIndex.compareTo(a.handIndex));
+        if (plan.isEmpty) break;
+        for (final m in plan) {
+          g.place(p, m.handIndex, m.row, m.col);
+          if (p == me) autoMine = true;
+        }
+      }
+    }
+    setState(() {});
+    if (autoMine) {
+      _snack(AppLocalizations.of(context).vlTimeout);
+      _haptic(Haptic.impact);
+    }
+    _doReveal(seq);
+  }
+
+  /// 둘 다 3장을 다 놓으면 즉시 공개하지 않고 **타이머를 5초로 줄인다** —
+  /// 숨김 지정을 바꿀 마지막 창구. (공개는 언제나 타이머 종료 시점)
+  void _afterPlacement(int seq) {
+    if (!mounted || seq != _seq) return;
+    if (!g.allPlaced || _phase != _Phase.placing) return;
+    if (_time.value > lastCallSeconds) {
+      _time.value = lastCallSeconds;
+    }
+  }
+
+  Future<void> _doReveal(int seq) async {
+    if (!mounted || seq != _seq || _phase != _Phase.placing) return;
+    setState(() => _phase = _Phase.revealing);
+    final l10n = AppLocalizations.of(context);
+    final aiHides = _ai.hides(g, ai);
+    g.reveal({me: Set.of(_hideMarks), ai: aiHides});
+    // 동시 공개 — 이 룰의 하이라이트. "두-둥" 스팅과 함께 전 카드가 뒤집힌다.
+    setState(() => _banner = l10n.vlRevealBanner);
+    _playSfx(Sfx.sting);
+    _haptic(Haptic.place);
+    if (aiHides.isNotEmpty) {
+      _snack(l10n.vlOppHid(aiHides.length));
+      _say(_lines?.hide);
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+    if (!mounted || seq != _seq) return;
+    setState(() => _banner = null);
+
+    // 판정 세리머니: 1줄부터 차례로 WIN / LOSE.
+    await _laneVerdictCeremony(seq);
+    if (!mounted || seq != _seq) return;
+
+    if (g.isFinished) {
+      await _finish(seq);
+      return;
+    }
+    // 공개된 정보만 보고 도발하거나 이를 간다 — 숨긴 카드는 대사로도 새지 않는다.
+    if (_lines != null) {
+      final wins = _publicWins();
+      if (wins.opp >= 2) {
+        _say(_lines!.lead);
+      } else if (wins.mine >= 2) {
+        _say(_lines!.behind);
+      }
+    }
+    final dealt = g.hands[me]!.length; // 보충 전 장수 — 새 카드만 딜링 연출
+    setState(() => g.nextRound());
+    await _startRound(dealt: dealt);
+  }
+
+  /// 줄별 판정 세리머니 — 첫째 줄부터 차례로, 공개된 정보 기준의
+  /// 족보(또는 합계)와 WIN/LOSE 칩이 레인 위에 튀어나온다.
+  Future<void> _laneVerdictCeremony(int seq) async {
+    final l10n = AppLocalizations.of(context);
+    for (var lane = 0; lane < kRows; lane++) {
+      if (!mounted || seq != _seq) return;
+      final mine = g.publicRow(me, lane);
+      final opp = g.publicRow(ai, lane);
+      final out = g.publicLine(me, lane);
+      switch (out) {
+        case LineOutcome.win:
+          _playSfx(Sfx.token);
+          _haptic(Haptic.shieldLock);
+        case LineOutcome.lose:
+          _playSfx(Sfx.attackHit);
+          _haptic(Haptic.impact);
+        case LineOutcome.tie:
+          _playSfx(Sfx.cardPlace);
+          _haptic(Haptic.select);
+      }
+      _showLaneVerdict(
+        lane: lane,
+        outcome: out,
+        myLabel: _handLabel(l10n, mine),
+        oppLabel: _handLabel(l10n, opp),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 550));
+    }
+    // 세 칩이 함께 보이는 여운.
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+  }
+
+  /// 판정 칩 라벨: 족보가 원페어 이상이면 족보명, 아니면 합계.
+  String _handLabel(AppLocalizations l10n, List<PlayingCard> cards) {
+    final r = evaluateHand(cards);
+    return r.category.index >= HandCategory.onePair.index
+        ? handCategoryName(l10n, r.category)
+        : l10n.vlSum(lineScore(cards));
+  }
+
+  /// [lane] 위(내 첫 칸과 상대 첫 칸 사이 = 점수 알약 자리)에 판정 칩을 띄운다.
+  /// 등장은 오버슛, 잠시 머물다 스스로 사라진다.
+  void _showLaneVerdict({
+    required int lane,
+    required LineOutcome outcome,
+    required String myLabel,
+    required String oppLabel,
+  }) {
+    final a = _rectFor(_cellKey(me, lane, 0));
+    final b = _rectFor(_cellKey(ai, lane, 0));
+    if (a == null || b == null || !mounted) return;
+    final center = Offset(
+      (a.center.dx + b.center.dx) / 2,
+      (a.center.dy + b.center.dy) / 2,
+    );
+    final l10n = AppLocalizations.of(context);
+    final (word, color) = switch (outcome) {
+      LineOutcome.win => (l10n.vlWin, AppColors.win),
+      LineOutcome.lose => (l10n.vlLose, AppColors.lose),
+      LineOutcome.tie => (l10n.vlTie, AppColors.tie),
+    };
+    late OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (context) => Positioned(
+        left: center.dx - 70,
+        top: center.dy - 40,
+        width: 140,
+        child: IgnorePointer(
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0, end: 1),
+            duration: const Duration(milliseconds: 2400),
+            builder: (context, t, child) {
+              // 0~0.12 등장(오버슛) · 0.12~0.85 유지 · 0.85~1 퇴장.
+              final enter = (t / 0.12).clamp(0.0, 1.0);
+              final exit = t < 0.85 ? 0.0 : (t - 0.85) / 0.15;
+              final scale = Curves.easeOutBack.transform(enter) * (1 - 0.15 * exit);
+              return Opacity(
+                opacity: ((enter) * (1 - exit)).clamp(0.0, 1.0),
+                child: Transform.scale(scale: scale, child: child),
+              );
+            },
+            onEnd: () => entry.remove(),
+            // 오버레이는 테마 DefaultTextStyle 밖 — 투명 Material로 잇는다.
+            child: Material(
+              type: MaterialType.transparency,
+              child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(oppLabel,
+                    style: const TextStyle(
+                        color: AppColors.oppPrimary,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12)),
+                Container(
+                  margin: const EdgeInsets.symmetric(vertical: 3),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: color, width: 2),
+                    boxShadow: [
+                      BoxShadow(color: color.withValues(alpha: 0.5), blurRadius: 12),
+                    ],
+                  ),
+                  child: Text(word,
+                      style: TextStyle(
+                          color: color,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 18,
+                          letterSpacing: 1.5)),
+                ),
+                Text(myLabel,
+                    style: const TextStyle(
+                        color: AppColors.mePrimary,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12)),
+              ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    Overlay.of(context).insert(entry);
+  }
+
+  /// 최후 공개(남은 숨김 카드를 하나씩 극적으로) → 기존 규칙으로 정산.
+  Future<void> _finish(int seq) async {
+    final l10n = AppLocalizations.of(context);
+    final hidden = [
+      for (final p in PlayerId.values)
+        for (final (r, c) in g.hiddenOf(p)) (p, r, c),
+    ];
+    if (hidden.isNotEmpty) {
+      setState(() => _banner = l10n.vlFinalReveal);
+      _playSfx(Sfx.sting);
+      await Future<void>.delayed(const Duration(milliseconds: 900));
+      if (!mounted || seq != _seq) return;
+      setState(() => _banner = null);
+    }
+    for (final (p, r, c) in hidden) {
+      await Future<void>.delayed(const Duration(milliseconds: 420));
+      if (!mounted || seq != _seq) return;
+      setState(() => g.fields[p]![r][c]!.faceUp = true);
+      _playSfx(Sfx.cardPlace);
+      _haptic(Haptic.select);
+      final rect = _rectFor(_cellKey(p, r, c));
+      if (rect != null && mounted) {
+        unawaited(hitFlash(overlay: Overlay.of(context), vsync: this, at: rect));
+      }
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 600));
+    if (!mounted || seq != _seq) return;
+    // 전부 공개된 상태 — 마지막 세리머니는 진짜 최종 판정이다.
+    await _laneVerdictCeremony(seq);
+    if (!mounted || seq != _seq) return;
+    final res = g.judge();
+    setState(() {
+      _result = res;
+      _phase = _Phase.finished;
+    });
+    switch (res.outcome) {
       case MatchOutcome.win:
         _playSfx(Sfx.win);
         _haptic(Haptic.win);
@@ -182,40 +598,95 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         _playSfx(Sfx.lose);
         _haptic(Haptic.lose);
       case MatchOutcome.draw:
-        break; // 무승부는 소리 없이
+        break;
+    }
+    // 결과 오버레이가 캐릭터 대사를 직접 그리므로 말풍선은 띄우지 않는다.
+    unawaited(_recordResult(res));
+  }
+
+  // ---- 상호작용 (전부 타이머 안에서) ----
+
+  int _nextCol(PlayerId p, int row) {
+    for (var c = 0; c < ScoreGame.colsN; c++) {
+      if (g.fields[p]![row][c] == null) return c;
+    }
+    return -1;
+  }
+
+  void _tapHand(int i) {
+    if (_phase != _Phase.placing || g.leftToPlace(me) <= 0) return;
+    _haptic(Haptic.select);
+    setState(() => selected = selected == i ? null : i);
+  }
+
+  void _onCellTap(PlayerId owner, int row, int col) {
+    if (_phase != _Phase.placing) return;
+    if (owner == me) {
+      final slot = g.fields[me]![row][col];
+      if (selected != null && slot == null) {
+        _placeSelected(row);
+      } else if (slot != null && slot.round == g.round && !slot.faceUp) {
+        _toggleHide(row, col); // 타이머가 끝나기 전까지는 자유롭게 변경
+      }
+    } else {
+      _tapPeek(row, col);
     }
   }
 
-  /// 결과 기록 여부(판당 1회).
-  bool _recorded = false;
-
-  /// 게임이 끝났으면 결과를 로컬 기록(랭킹)에 1회 저장한다.
-  /// 테스트/스크린샷용 주입 상태([GameScreen.initialState])는 기록하지 않는다.
-  void _maybeRecordResult() {
-    if (!state.isFinished || _recorded || widget.initialState != null) return;
-    _recorded = true;
-    final r = state.result(me);
-    _persistRecord(GameRecord(
-      playedAt: DateTime.now(),
-      myScore: r.myTotal,
-      oppScore: r.opponentTotal,
-      outcome: r.outcome,
-    ));
+  Future<void> _placeSelected(int row) async {
+    if (selected == null || g.leftToPlace(me) <= 0) return;
+    final col = _nextCol(me, row);
+    if (col < 0) return; // 줄이 가득
+    final seq = _seq;
+    final i = selected!;
+    if (i >= g.hands[me]!.length) return;
+    final card = g.hands[me]![i];
+    setState(() {
+      selected = null;
+      _flyingHandIndex = i;
+    });
+    await _fly(_handKey(i), _cellKey(me, row, col), card);
+    if (!mounted || seq != _seq || _phase != _Phase.placing) return;
+    setState(() {
+      _flyingHandIndex = null;
+      g.place(me, i, row, col);
+    });
+    _playSfx(Sfx.cardPlace);
+    _haptic(Haptic.place);
+    _afterPlacement(seq);
   }
 
-  Future<void> _persistRecord(GameRecord record) async {
-    try {
-      await RecordsStore.addRecord(record);
-    } on Object {
-      // 저장 실패(예: 스토리지 미지원 환경)는 게임 진행에 영향을 주지 않는다.
+  void _toggleHide(int r, int c) {
+    final pos = (r, c);
+    setState(() {
+      if (_hideMarks.contains(pos)) {
+        _hideMarks.remove(pos);
+        _haptic(Haptic.select);
+      } else if (_hideMarks.length < g.veilLeft[me]!) {
+        _hideMarks.add(pos);
+        // 봉인 도장이 찍히는 순간 — 동전 핑 + 잠금 촉감.
+        _playSfx(Sfx.token);
+        _haptic(Haptic.shieldLock);
+      }
+    });
+  }
+
+  /// 뒤집힌(지난 라운드에 숨겨진) 상대 카드를 클릭하면 비공개권으로 뒤집는다.
+  Future<void> _tapPeek(int r, int c) async {
+    if (g.veilLeft[me]! <= 0) return;
+    final slot = g.fields[ai]![r][c];
+    if (slot == null || slot.faceUp || slot.round >= g.round) return;
+    setState(() => g.peek(me, r, c));
+    _playSfx(Sfx.token);
+    _haptic(Haptic.shieldLock);
+    final rect = _rectFor(_cellKey(ai, r, c));
+    if (rect != null && mounted) {
+      unawaited(shieldGlint(overlay: Overlay.of(context), vsync: this, at: rect));
     }
+    _say(_lines?.peeked);
   }
 
-  /// 시점은 항상 나(P0). 절대 뒤집히지 않는다.
-  PlayerId get viewer => me;
-
-  /// 내 차례이고 애니메이션 중이 아닐 때만 조작 가능.
-  bool get _myTurn => state.current == me && !_animating && !state.isFinished;
+  // ---- build (기존 게임 화면과 같은 뼈대) ----
 
   @override
   Widget build(BuildContext context) {
@@ -226,223 +697,94 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       body: DecoratedBox(
         decoration: const BoxDecoration(gradient: AppColors.bgGradient),
         child: SafeArea(
-          child: state.phase == GamePhase.awaitingReveal
-              ? _openingSequence(l10n)
-              : Stack(
-                  children: [
-                    landscape ? _landscapeLayout(l10n, size.height) : _portraitLayout(l10n),
-                    // 이모트 피커: 바깥을 탭하면 닫힘
-                    if (_emoteOpen) ...[
-                      Positioned.fill(
-                        child: GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onTap: () => setState(() => _emoteOpen = false),
-                        ),
-                      ),
-                      Positioned(
-                        right: 12,
-                        bottom: landscape ? 116 : 128,
-                        child: _emotePicker(),
-                      ),
-                    ],
-                    // 이모트 말풍선: 상대(위) / 나(아래) 아바타 옆.
-                    // 키 필수 — 상대 말풍선이 앞에 끼어들 때 엘리먼트가 밀려
-                    // 내 말풍선의 등장 애니메이션이 리셋되는 것을 막는다.
-                    if (_oppEmote != null)
-                      Positioned(
-                        key: const ValueKey('emote-opp'),
-                        left: 14,
-                        top: landscape ? 92 : 60,
-                        child: EmoteBubble(key: ValueKey('opp-$_oppEmote'), asset: _oppEmote!),
-                      ),
-                    if (_myEmote != null)
-                      Positioned(
-                        key: const ValueKey('emote-me'),
-                        left: 14,
-                        bottom: landscape ? 116 : 128,
-                        child: EmoteBubble(key: ValueKey('me-$_myEmote'), asset: _myEmote!),
-                      ),
-                    // 페르소나 대사 말풍선(상대 아바타 옆, 이모트와 같은 슬롯)
-                    if (_oppSpeech != null)
-                      Positioned(
-                        key: const ValueKey('speech-opp'),
-                        left: 14,
-                        right: 84,
-                        top: landscape ? 92 : 60,
-                        child: Align(
-                          alignment: Alignment.topLeft,
-                          child: _SpeechBubble(key: ValueKey('sp-$_oppSpeech'), text: _oppSpeech!),
-                        ),
-                      ),
-                    if (state.isFinished) _resultOverlay(l10n),
-                  ],
+          child: Stack(
+            children: [
+              landscape ? _landscapeLayout(l10n, size.height) : _portraitLayout(l10n),
+              // 이모트: 바깥 탭으로 닫힘, 말풍선은 아바타 옆 (기존 게임과 동일)
+              if (_emoteOpen) ...[
+                Positioned.fill(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => setState(() => _emoteOpen = false),
+                  ),
                 ),
+                Positioned(
+                  right: 12,
+                  bottom: landscape ? 116 : 128,
+                  child: EmotePicker(onPick: _sendEmote),
+                ),
+              ],
+              if (_oppSpeech != null)
+                Positioned(
+                  key: const ValueKey('speech-opp'),
+                  left: 14,
+                  top: landscape ? 92 : 60,
+                  child: _SpeechBubble(key: ValueKey('sp-$_oppSpeech'), text: _oppSpeech!),
+                )
+              else if (_oppEmote != null)
+                Positioned(
+                  key: const ValueKey('emote-opp'),
+                  left: 14,
+                  top: landscape ? 92 : 60,
+                  child: EmoteBubble(key: ValueKey('opp-$_oppEmote'), asset: _oppEmote!),
+                ),
+              if (_myEmote != null)
+                Positioned(
+                  key: const ValueKey('emote-me'),
+                  left: 14,
+                  bottom: landscape ? 116 : 128,
+                  child: EmoteBubble(key: ValueKey('me-$_myEmote'), asset: _myEmote!),
+                ),
+              if (_banner != null) _bannerOverlay(_banner!),
+              if (_result != null) _resultOverlay(l10n, _result!),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  // ---- 세로 레이아웃: [상대 스트립] / [테이블(덱|레인 보드|무덤)] / [내 아바타+손패+폴드] ----
   Widget _portraitLayout(AppLocalizations l10n) => Column(
         children: [
           _opponentStrip(l10n),
+          _timerBar(),
           Expanded(child: _tableArea(landscape: false)),
           _myBottomRow(l10n),
         ],
       );
 
-  // ---- 가로 레이아웃 (보드가 대부분 공간을 차지, 내 필드 = 오른쪽) ----
-  //
-  // 폰 가로(높이 ~400)에서는 고정 88/104 바가 화면의 절반을 먹어 보드가 쪼그라든다.
-  // 화면이 낮을수록 바를 함께 줄여서 테이블 높이를 지켜준다.
   Widget _landscapeLayout(AppLocalizations l10n, double h) {
     final topH = (h * 0.14).clamp(58.0, 88.0);
     final handH = (h * 0.19).clamp(74.0, 100.0);
     return Column(
       children: [
         SizedBox(height: topH, child: _lsTopRow(l10n)),
+        _timerBar(),
         Expanded(child: _tableArea(landscape: true)),
         SizedBox(height: handH + 4, child: _lsBottomRow(l10n, handH)),
       ],
     );
   }
 
-  Widget _lsTopRow(AppLocalizations l10n) {
-    final wins = _lineWins();
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 6, 8, 0),
-      child: Row(
-        children: [
-          TurnAvatar(
-              color: widget.persona?.color ?? AppColors.oppPrimary,
-              active: state.current == ai && !state.isFinished),
-          const SizedBox(width: 8),
-          _WinsPill(count: wins.opp, color: AppColors.oppPrimary),
-          Expanded(
-            child: Center(
-              child: FaceDownHand(key: _oppHandKey, count: state.hands[ai]!.length),
-            ),
-          ),
-          _deckCounter(),
-          IconButton(
-            icon: const Icon(Icons.refresh_rounded),
-            color: AppColors.inkSoft,
-            tooltip: l10n.newGame,
-            onPressed: _animating ? null : () => setState(_start),
-          ),
-        ],
-      ),
-    );
+  ({int mine, int opp}) _publicWins() {
+    var m = 0, o = 0;
+    for (var i = 0; i < kRows; i++) {
+      final r = g.publicLine(me, i);
+      if (r == LineOutcome.win) m++;
+      if (r == LineOutcome.lose) o++;
+    }
+    return (mine: m, opp: o);
   }
-
-  Widget _lsBottomRow(AppLocalizations l10n, double handH) {
-    final wins = _lineWins();
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
-      child: Row(
-        children: [
-          Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              TurnAvatar(color: AppColors.mePrimary, active: _myTurn),
-              const SizedBox(height: 6),
-              _WinsPill(count: wins.mine, color: AppColors.mePrimary),
-            ],
-          ),
-          Expanded(child: _handBar(l10n, height: handH)),
-          _actionCluster(l10n, landscape: true),
-        ],
-      ),
-    );
-  }
-
-  /// 가로 모드용 컴팩트 덱 카운터(드로우 연출 출발점).
-  Widget _deckCounter() {
-    return Padding(
-      key: _deckKey,
-      padding: const EdgeInsets.symmetric(horizontal: 6),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.style_rounded, size: 15, color: AppColors.textMuted),
-          const SizedBox(width: 4),
-          Text('${state.deckRemaining}',
-              style: const TextStyle(
-                  color: AppColors.textMuted, fontWeight: FontWeight.w800, fontSize: 13)),
-        ],
-      ),
-    );
-  }
-
-  /// 게임 테이블: 밤의 펠트 + 골드 핀스트라이프 + (세로: 덱|보드|무덤 / 가로: 보드만).
-  Widget _tableArea({required bool landscape}) => Padding(
-        padding: const EdgeInsets.all(4),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: AppColors.feltGradient,
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: AppColors.feltEdge, width: 1),
-          ),
-          child: Stack(
-            children: [
-              // 정적 장식(shouldRepaint=false) — 레이어로 캐시해 보드가 바뀔 때 같이
-              // 다시 칠하지 않게 한다.
-              const Positioned.fill(
-                child: RepaintBoundary(child: CustomPaint(painter: TableDecorPainter())),
-              ),
-              // 핀스트라이프 안쪽 여백 — 모든 내용물이 골드 라인 안에 들어온다
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                child: landscape
-                    ? _boardView(landscape: true)
-                    : Row(
-                        children: [
-                          SizedBox(
-                            width: 66,
-                            child: Center(
-                              child:
-                                  DeckPileView(remaining: state.deckRemaining, pileKey: _deckKey),
-                            ),
-                          ),
-                          Expanded(child: _boardView(landscape: false)),
-                          SizedBox(
-                            width: 66,
-                            child:
-                                Center(child: DiscardPileView(cards: _grave, pileKey: _graveKey)),
-                          ),
-                        ],
-                      ),
-              ),
-            ],
-          ),
-        ),
-      );
-
-  // 보드 자체에는 RepaintBoundary를 두지 않는다 — 이득을 측정할 수 없는데 레이어
-  // 비용은 상시 발생하고, 래스터화가 미세하게 달라진다. 대신 **계속 움직이는 것**
-  // (TurnAvatar)과 **정적인 것**(TableDecorPainter)을 각각 격리했다.
-  Widget _boardView({required bool landscape}) => BoardView(
-        cellAt: (owner, row, col) => state.fields[owner]![row][col],
-        viewer: viewer,
-        onCellTap: _onCellTap,
-        isHighlighted: _isHighlighted,
-        isConcealed: (owner, row, col) =>
-            _concealedCell == (owner: owner, row: row, col: col),
-        cellKeyFor: _boardKey,
-        landscape: landscape,
-      );
-
-  // ---- 상대 스트립(아바타 + 뒷면 손패 + 새 게임) ----
 
   Widget _opponentStrip(AppLocalizations l10n) {
-    final wins = _lineWins();
+    final wins = _publicWins();
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 6, 4),
+      padding: const EdgeInsets.fromLTRB(16, 8, 6, 2),
       child: Row(
         children: [
           TurnAvatar(
               color: widget.persona?.color ?? AppColors.oppPrimary,
-              active: state.current == ai && !state.isFinished),
+              active: _phase == _Phase.placing && !g.isFinished),
           const SizedBox(width: 8),
           Flexible(
             child: Text(widget.persona?.name ?? l10n.player2,
@@ -453,97 +795,328 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           const SizedBox(width: 10),
           _WinsPill(count: wins.opp, color: AppColors.oppPrimary),
           const Spacer(),
-          FaceDownHand(key: _oppHandKey, count: state.hands[ai]!.length),
+          FaceDownHand(
+              key: _oppHandKey,
+              count: _phase == _Phase.dealing ? _dealtOpp : g.hands[ai]!.length),
           IconButton(
             icon: const Icon(Icons.refresh_rounded),
             color: AppColors.inkSoft,
             tooltip: l10n.newGame,
-            onPressed: _animating ? null : () => setState(_start),
+            onPressed: _phase == _Phase.revealing ? null : _restart,
           ),
         ],
       ),
     );
   }
 
-  // ---- 하단: 내 아바타 + 손패 + 폴드 ----
-
-  Widget _myBottomRow(AppLocalizations l10n) {
-    final wins = _lineWins();
+  Widget _lsTopRow(AppLocalizations l10n) {
+    final wins = _publicWins();
     return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 4, 10, 10),
+      padding: const EdgeInsets.fromLTRB(14, 6, 8, 0),
       child: Row(
         children: [
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TurnAvatar(color: AppColors.mePrimary, active: _myTurn),
-              const SizedBox(height: 5),
-              _WinsPill(count: wins.mine, color: AppColors.mePrimary),
-            ],
+          TurnAvatar(
+              color: widget.persona?.color ?? AppColors.oppPrimary,
+              active: _phase == _Phase.placing && !g.isFinished),
+          const SizedBox(width: 8),
+          _WinsPill(count: wins.opp, color: AppColors.oppPrimary),
+          const SizedBox(width: 10),
+          // 기회(비공개권)는 게임판 위 — 상대/내 코인이 한눈에 비교된다.
+          _coinsRow(g.veilLeft[ai]!, ring: AppColors.oppPrimary),
+          Expanded(
+            child: Center(
+              child: FaceDownHand(
+                  key: _oppHandKey,
+                  count: _phase == _Phase.dealing ? _dealtOpp : g.hands[ai]!.length),
+            ),
           ),
-          Expanded(child: _handBar(l10n, height: 104)),
-          _actionCluster(l10n, landscape: false),
+          _coinsRow(g.veilLeft[me]! - _hideMarks.length, ring: AppColors.mePrimary),
+          const SizedBox(width: 10),
+          _placePips(horizontal: true),
+          const SizedBox(width: 6),
+          _deckCounter(),
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded),
+            color: AppColors.inkSoft,
+            tooltip: l10n.newGame,
+            onPressed: _phase == _Phase.revealing ? null : _restart,
+          ),
         ],
       ),
     );
   }
 
-  // ---- 감정 표현(이모트) ----
-
-  /// 손패 옆 액션 버튼 묶음: [쉴드][표식] / [이모트][폴드].
-  ///
-  /// 세로에서는 **2×2 그리드**로 쌓는다. 한 줄에 네 개를 놓으면 손패가 그만큼 좁아져서
-  /// 작은 폰에서 카드가 뭉개진다 — 가로 폭은 두 개일 때와 똑같이 유지된다.
-  Widget _actionCluster(AppLocalizations l10n, {required bool landscape}) {
-    final buttons = <Widget>[
-      for (final b in [
-        _tokenButton(l10n, TokenKind.shield),
-        _tokenButton(l10n, TokenKind.attack),
-      ])
-        if (b != null) b,
-      _emoteButton(l10n),
-      _foldButton(l10n),
-    ];
-
-    if (landscape) {
-      return Row(
+  /// 비공개권 코인 3개(가로). 쓴 만큼 빈 소켓.
+  Widget _coinsRow(int filled, {required Color ring}) => Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          for (var i = 0; i < buttons.length; i++) ...[
-            if (i > 0) const SizedBox(width: 6),
-            buttons[i],
-          ],
+          for (var i = 0; i < 3; i++)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 1.5),
+              child: VeilCoin(size: 17, filled: i < filled, ring: ring),
+            ),
         ],
       );
-    }
 
-    final rows = <Widget>[];
-    for (var i = 0; i < buttons.length; i += 2) {
-      if (rows.isNotEmpty) rows.add(const SizedBox(height: 6));
-      rows.add(Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          buttons[i],
-          if (i + 1 < buttons.length) ...[
-            const SizedBox(width: 6),
-            buttons[i + 1],
-          ],
-        ],
-      ));
-    }
-    return Column(mainAxisSize: MainAxisSize.min, children: rows);
+  /// 이번 라운드 남은 배치 3칸 — 미니 카드 핍. 놓을수록 비워진다.
+  Widget _placePips({required bool horizontal}) {
+    final left = g.leftToPlace(me);
+    final pips = [
+      for (var i = 0; i < ScoreGame.perRound; i++)
+        Padding(
+          padding: const EdgeInsets.all(1.5),
+          child: Container(
+            width: 9,
+            height: 13,
+            decoration: BoxDecoration(
+              color: i < left ? AppColors.gold : AppColors.slotRecess,
+              borderRadius: BorderRadius.circular(2.5),
+              border: Border.all(
+                  color: i < left ? AppColors.goldSoft : AppColors.stroke),
+            ),
+          ),
+        ),
+    ];
+    return horizontal
+        ? Row(mainAxisSize: MainAxisSize.min, children: pips)
+        : Column(mainAxisSize: MainAxisSize.min, children: pips);
   }
 
-  Widget _emoteButton(AppLocalizations l10n) => EmoteButton(
-        tooltip: l10n.emotesTitle,
-        open: _emoteOpen,
-        onTap: () => setState(() => _emoteOpen = !_emoteOpen),
+  Widget _deckCounter() {
+    return Padding(
+      key: _deckKey,
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.style_rounded, size: 15, color: AppColors.textMuted),
+          const SizedBox(width: 4),
+          Text('${g.deckRemaining}',
+              style: const TextStyle(
+                  color: AppColors.textMuted, fontWeight: FontWeight.w800, fontSize: 13)),
+        ],
+      ),
+    );
+  }
+
+  /// 배치 제한 시간 — 이 룰에서 유일하게 추가된 크롬.
+  /// ValueListenableBuilder로 이 바만 다시 그린다(화면 전체 리빌드 금지).
+  Widget _timerBar() {
+    final active = _phase == _Phase.placing;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 2, 18, 2),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(99),
+        child: ValueListenableBuilder<double>(
+          valueListenable: _time,
+          builder: (context, left, _) {
+            final urgent = active && left <= 5;
+            return LinearProgressIndicator(
+              value: active ? (left / roundSeconds).clamp(0.0, 1.0) : 1,
+              minHeight: 4,
+              backgroundColor: AppColors.slotRecess,
+              valueColor: AlwaysStoppedAnimation(
+                active
+                    ? (urgent ? AppColors.oppPrimary : AppColors.gold)
+                    : AppColors.stroke,
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _tableArea({required bool landscape}) => Padding(
+        padding: const EdgeInsets.all(4),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: AppColors.feltGradient,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: AppColors.feltEdge, width: 1),
+          ),
+          child: Stack(
+            children: [
+              const Positioned.fill(
+                child: RepaintBoundary(child: CustomPaint(painter: TableDecorPainter())),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                child: landscape
+                    ? _boardView(landscape: true)
+                    : Row(
+                        children: [
+                          SizedBox(
+                            width: 66,
+                            child: Center(
+                              child: DeckPileView(
+                                  remaining: g.deckRemaining, pileKey: _deckKey),
+                            ),
+                          ),
+                          Expanded(child: _boardView(landscape: false)),
+                          SizedBox(width: 66, child: Center(child: _sideColumn())),
+                        ],
+                      ),
+              ),
+            ],
+          ),
+        ),
       );
 
-  /// 이모트 6종이 펼쳐지는 피커 패널.
-  Widget _emotePicker() => EmotePicker(onPick: _sendEmote);
+  /// 우측 열(무덤 자리): 라운드 + **기회 코인들** + 남은 배치 — 판 위의 상황판.
+  /// 손패 옆을 비우기 위해 자원 표시는 전부 여기로 모았다.
+  Widget _sideColumn() {
+    final l10n = AppLocalizations.of(context);
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.stroke),
+          ),
+          child: Text(
+            l10n.roundLabel(g.round + 1),
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+                color: AppColors.gold, fontWeight: FontWeight.w900, fontSize: 11),
+          ),
+        ),
+        const SizedBox(height: 14),
+        // 상대 코인(위쪽 = 상대 필드 쪽)
+        _coinsColumn(g.veilLeft[ai]!, ring: AppColors.oppPrimary),
+        const SizedBox(height: 18),
+        // 내 코인(아래쪽 = 내 필드 쪽)
+        _coinsColumn(g.veilLeft[me]! - _hideMarks.length, ring: AppColors.mePrimary),
+        const SizedBox(height: 14),
+        _placePips(horizontal: false),
+      ],
+    );
+  }
 
-  /// 내 이모트 전송 → 잠시 뒤 상대(AI)도 반응 이모트를 보낸다(수신 화면 데모).
+  Widget _coinsColumn(int filled, {required Color ring}) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 0; i < 3; i++)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 1.5),
+              child: VeilCoin(size: 19, filled: i < filled, ring: ring),
+            ),
+        ],
+      );
+
+  Widget _boardView({required bool landscape}) => BoardView(
+        cellAt: (owner, row, col) {
+          final s = g.fields[owner]![row][col];
+          return s == null ? null : PlacedCard(s.card, owner);
+        },
+        viewer: me,
+        onCellTap: _onCellTap,
+        isHighlighted: _isHighlighted,
+        lookOf: _lookOf,
+        lineCardsOf: (p, line) => g.publicRow(p, line),
+        cellKeyFor: _cellKey,
+        landscape: landscape,
+      );
+
+  CellLook _lookOf(PlayerId owner, int row, int col) {
+    final s = g.fields[owner]![row][col];
+    if (s == null || s.faceUp) return CellLook.face;
+    if (owner != me) {
+      // 이번 라운드 뒷면은 곧 뒤집힌다 — 그냥 뒷면.
+      // 공개를 넘기고도 덮여 있는 카드만 "덮어 둔 카드"다: 검은 일렁거림.
+      final veiled = s.round < g.round || g.revealDone;
+      if (!veiled) return CellLook.back;
+      // 그중 지금 내 코인으로 열 수 있는 카드에는 브라스 마커가 하나 더 붙는다.
+      final peekable = _phase == _Phase.placing &&
+          g.veilLeft[me]! > 0 &&
+          s.round < g.round;
+      return peekable ? CellLook.backPeekable : CellLook.backVeiled;
+    }
+    // 숨김 지정된 내 카드 = 봉인 도장. (확정은 공개 순간, 그 전까지 탭으로 해제)
+    return _hideMarks.contains((row, col)) ? CellLook.sealed : CellLook.peek;
+  }
+
+  bool _isHighlighted(PlayerId owner, int row, int col) {
+    if (_phase != _Phase.placing) return false;
+    // 봉인은 도장이, 열어보기는 코인 마커가 말한다 — 하이라이트는 배치 목적지뿐.
+    return owner == me &&
+        selected != null &&
+        g.fields[owner]![row][col] == null &&
+        col == _nextCol(me, row);
+  }
+
+  // ---- 하단: 내 아바타 + 손패 + 남은 배치 ----
+
+  // 손패 양옆은 비워 둔다 — 왼쪽 아바타(+줄 승수), 오른쪽 이모트뿐.
+  // 자원(코인·배치 핍)은 전부 게임판 위의 상황판으로 올렸다.
+  Widget _myBottomRow(AppLocalizations l10n) {
+    final wins = _publicWins();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 4, 10, 10),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TurnAvatar(
+                      color: AppColors.mePrimary,
+                      active: _phase == _Phase.placing && !g.isFinished),
+                  const SizedBox(height: 5),
+                  _WinsPill(count: wins.mine, color: AppColors.mePrimary),
+                ],
+              ),
+              Expanded(child: _handBar(height: 104)),
+              EmoteButton(
+                tooltip: l10n.emotesTitle,
+                open: _emoteOpen,
+                onTap: () => setState(() => _emoteOpen = !_emoteOpen),
+              ),
+            ],
+          ),
+          _hint(l10n),
+        ],
+      ),
+    );
+  }
+
+  Widget _lsBottomRow(AppLocalizations l10n, double handH) {
+    final wins = _publicWins();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+      child: Row(
+        children: [
+          // 낮은 가로 화면(360dp)에서는 아바타+승수가 손패 높이보다 커진다 — 축소해 넣는다.
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TurnAvatar(
+                    color: AppColors.mePrimary,
+                    active: _phase == _Phase.placing && !g.isFinished),
+                const SizedBox(height: 6),
+                _WinsPill(count: wins.mine, color: AppColors.mePrimary),
+              ],
+            ),
+          ),
+          Expanded(child: _handBar(height: handH)),
+          EmoteButton(
+            tooltip: l10n.emotesTitle,
+            open: _emoteOpen,
+            onTap: () => setState(() => _emoteOpen = !_emoteOpen),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 내 이모트 전송 → 잠시 뒤 상대(AI)도 반응한다. (기존 게임과 같은 동작)
   void _sendEmote(String asset) {
     setState(() {
       _emoteOpen = false;
@@ -562,39 +1135,23 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     });
   }
 
-  /// 상대(AI)의 반응 이모트 — 살짝 놀리는 조합.
   String _emoteReply(String sent) => switch (sent) {
         'assets/lottie/emoji_smile.json' => 'assets/lottie/emoji_wow.json',
         'assets/lottie/emoji_lol.json' => 'assets/lottie/emoji_angry.json',
         'assets/lottie/emoji_wow.json' => 'assets/lottie/emoji_smile.json',
         'assets/lottie/emoji_sad.json' => 'assets/lottie/emoji_lol.json',
         'assets/lottie/emoji_angry.json' => 'assets/lottie/emoji_lol.json',
-        _ => 'assets/lottie/emoji_smile.json', // cry → smile(위로인 척)
+        _ => 'assets/lottie/emoji_smile.json',
       };
 
-  Widget _foldButton(AppLocalizations l10n) => Tooltip(
-        message: l10n.actionFold,
-        child: OutlinedButton(
-          onPressed: (state.isFinished || _animating) ? null : _onFold,
-          style: OutlinedButton.styleFrom(
-            padding: const EdgeInsets.all(10),
-            minimumSize: Size.zero,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-          child: const Icon(Icons.flag_rounded, size: 18),
-        ),
-      );
-
-  // ---- 내 손패 (앞면) ----
-
-  Widget _handBar(AppLocalizations l10n, {required double height}) {
-    final hand = state.hands[me]!; // 항상 내 손패(고정)
+  Widget _handBar({required double height}) {
+    final hand = g.hands[me]!;
     for (var i = 0; i < hand.length; i++) {
-      _handKey(i); // 풀 확보(키 자체는 재사용)
+      _handKey(i);
     }
-    final dim = !_myTurn; // 내 차례 아니면 흐리게(대신 판은 안 뒤집힘)
+    final dealing = _phase == _Phase.dealing;
+    final dim = !dealing && (_phase != _Phase.placing || g.leftToPlace(me) <= 0);
     return SizedBox(
-      key: _handAreaKey,
       height: height,
       child: hand.isEmpty
           ? const Center(
@@ -607,33 +1164,22 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   children: [
                     for (var i = 0; i < hand.length; i++)
                       Opacity(
-                        opacity: _flyingHandIndex == i ? 0 : (dim ? 0.5 : 1),
+                        // 딜링 중엔 아직 도착하지 않은 카드 슬롯을 투명하게 —
+                        // 자리는 잡혀 있어 비행이 정확한 위치에 안착한다.
+                        opacity: (dealing && i >= _dealtMine) || _flyingHandIndex == i
+                            ? 0
+                            : (dim ? 0.5 : 1),
                         child: AnimatedSlide(
                           duration: const Duration(milliseconds: 140),
                           curve: Curves.easeOut,
                           offset: selected == i ? const Offset(0, -0.18) : Offset.zero,
-                          // 공격 가능한 카드(처음 받은 카드/조커)는 붉은 테두리로 구분 —
-                          // 이 표시가 없으면 "아껴 쓴다"는 판단 자체를 할 수 없다.
-                          child: DecoratedBox(
-                            decoration: hand[i].canAttack
-                                ? BoxDecoration(
-                                    borderRadius: BorderRadius.circular(9),
-                                    border: Border.all(color: AppColors.oppPrimary, width: 2),
-                                    boxShadow: [
-                                      BoxShadow(
-                                          color: AppColors.oppPrimary.withValues(alpha: 0.45),
-                                          blurRadius: 8),
-                                    ],
-                                  )
-                                : const BoxDecoration(),
-                            child: CardCell(
-                              key: _handKey(i),
-                              placed: PlacedCard(hand[i], me),
-                              size: 50,
-                              side: CellSide.me,
-                              highlighted: selected == i,
-                              onTap: () => _selectHand(i),
-                            ),
+                          child: CardCell(
+                            key: _handKey(i),
+                            placed: PlacedCard(hand[i], me),
+                            size: 50,
+                            side: CellSide.me,
+                            highlighted: selected == i,
+                            onTap: () => _tapHand(i),
                           ),
                         ),
                       ),
@@ -644,939 +1190,183 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     );
   }
 
-  // ---- 선공 정하기(오프닝 딜링 연출) ----
-
-  Widget _openingSequence(AppLocalizations l10n) {
-    final oppPick = _oppRevealIndex();
-    return OpeningSequence(
-      myHand: state.hands[PlayerId.p0]!,
-      oppHand: state.hands[PlayerId.p1]!,
-      oppPick: oppPick,
-      myName: l10n.player1,
-      oppName: widget.persona?.name ?? l10n.player2,
-      decideFirst: _decideFirst,
-      onFinished: (myPick) {
-        // 오픈 카드 2장은 버려진다 → 무덤에 쌓아 연출의 근거를 남긴다.
-        final myOpen = state.hands[PlayerId.p0]![myPick];
-        final oppOpen = state.hands[PlayerId.p1]![oppPick];
-        setState(() {
-          state.revealForFirstTurn(myPick, oppPick);
-          _grave
-            ..add(oppOpen)
-            ..add(myOpen);
-        });
-        if (widget.persona != null) _personaSay(widget.persona!.lines.greeting);
-        _maybeRunOpponent(); // 상대가 선공이면 바로 AI가 둔다
-      },
+  Widget _hint(AppLocalizations l10n) {
+    final String text;
+    switch (_phase) {
+      case _Phase.dealing:
+      case _Phase.revealing:
+      case _Phase.finished:
+        text = '';
+      case _Phase.placing:
+        text = g.leftToPlace(me) > 0 ? l10n.vlPlacePrompt : l10n.vlWaitOpp;
+    }
+    if (text.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Text(text,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+              color: AppColors.textMuted, fontSize: 11.5, fontWeight: FontWeight.w600)),
     );
   }
 
-  /// 상대(P2)는 가장 높은 숫자 카드를 오픈(선공을 노림).
-  int _oppRevealIndex() {
-    final h = state.hands[PlayerId.p1]!;
-    var j = 0;
-    for (var k = 1; k < h.length; k++) {
-      if (h[k].rank > h[j].rank) j = k;
-    }
-    return j;
-  }
-
-  /// 두 오픈 카드로 선공 판정(도메인 revealForFirstTurn과 동일 규칙).
-  PlayerId _decideFirst(PlayingCard mine, PlayingCard opp) {
-    var cmp = mine.rank.compareTo(opp.rank);
-    if (cmp == 0) cmp = mine.suit.order.compareTo(opp.suit.order);
-    return cmp >= 0 ? PlayerId.p0 : PlayerId.p1;
-  }
-
-  // ---- 상호작용 ----
-
-  List<PlayingCard> _cards(PlayerId p, int line) => [
-        for (final c in state.fields[p]![line])
-          if (c != null) c.card
-      ];
-
-  ({int mine, int opp}) _lineWins() {
-    var m = 0, o = 0;
-    for (var i = 0; i < kRows; i++) {
-      final r = compareLine(_cards(viewer, i), _cards(viewer.other, i));
-      if (r == LineOutcome.win) m++;
-      if (r == LineOutcome.lose) o++;
-    }
-    return (mine: m, opp: o);
-  }
-
-  /// 내 필드에서 빼앗은 카드를 놓을 칸: 지금 보고 있는 줄부터, 없으면 위에서부터.
-  ({int row, int col})? _stealDest(int preferredRow) {
-    for (final r in [preferredRow, ...List.generate(kRows, (i) => i)]) {
-      final c = _firstEmptyCol(me, r);
-      if (c != null) return (row: r, col: c);
-    }
-    return null;
-  }
-
-  int? _firstEmptyCol(PlayerId p, int row) {
-    for (var col = 0; col < kCols; col++) {
-      if (state.fields[p]![row][col] == null) return col; // col0=가운데부터
-    }
-    return null;
-  }
-
-  void _selectHand(int i) {
-    if (!_myTurn) return;
-    if (_tokenMode == TokenKind.attack) {
-      _useToken(TokenKind.attack, () => state.markAttacker(i));
-      return;
-    }
-    // 쉴드 대기 중에 손패를 누르면 "그만두겠다"는 뜻으로 본다.
-    if (_tokenMode != null) setState(() => _tokenMode = null);
-    _haptic(Haptic.select);
-    setState(() => selected = (selected == i) ? null : i);
-  }
-
-  void _onCellTap(PlayerId owner, int row, int col) => _handleCellTap(owner, row, col);
-
-  Future<void> _handleCellTap(PlayerId owner, int row, int col) async {
-    if (_animating || state.isFinished || state.current != me) return;
-    // await 이후에 context를 만지지 않도록 미리 잡아둔다.
-    final l10n = AppLocalizations.of(context);
-
-    if (_tokenMode == TokenKind.shield) {
-      if (owner != me) {
-        _snack(l10n.tokenShieldPrompt); // 상대 카드는 대상이 아니다
-        return;
-      }
-      _useToken(TokenKind.shield, () => state.declareShield(row, col));
-      return;
-    }
-    // 표식 대기 중에 보드를 누르면 그만두겠다는 뜻.
-    if (_tokenMode != null) setState(() => _tokenMode = null);
-
-    try {
-      if (selected == null) return;
-
-      final handIndex = selected!;
-      final card = state.hands[me]![handIndex];
-
-      if (owner == me) {
-        // 내 필드: 가운데부터 채움 (탭한 칸 무시, 가장 안쪽 빈 칸)
-        final target = _firstEmptyCol(owner, row);
-        if (target == null) {
-          _snack(l10n.errLineFull);
-          return;
-        }
-        if (card.isJoker) {
-          final picked = await _showJokerPicker();
-          if (picked == null) return;
-          final display = card.designate(picked.$1, picked.$2);
-          await _placeWithFly(
-            handIndex: handIndex,
-            targetOwner: owner,
-            row: row,
-            col: target,
-            displayCard: display,
-            commit: () => state.placeCard(handIndex, owner, row, target,
-                jokerRank: picked.$1, jokerSuit: picked.$2),
-          );
-        } else {
-          await _placeWithFly(
-            handIndex: handIndex,
-            targetOwner: owner,
-            row: row,
-            col: target,
-            displayCard: card,
-            commit: () => state.placeCard(handIndex, owner, row, target),
-          );
-        }
-      } else {
-        final cell = state.fields[owner]![row][col];
-        if (cell == null) {
-          if (card.isShield) {
-            await _placeWithFly(
-              handIndex: handIndex,
-              targetOwner: owner,
-              row: row,
-              col: col,
-              displayCard: card,
-              commit: () => state.placeCard(handIndex, owner, row, col),
-            );
-          } else {
-            _snack(l10n.errNormalOwnFieldOnly);
-          }
-        } else {
-          if (state.pendingBonus) {
-            _snack(l10n.errAttackOncePerTurn);
-            return;
-          }
-          if (!card.canAttack) {
-            _snack(l10n.errAttackerCardRequired);
-            return;
-          }
-          final dest = _stealDest(row);
-          if (dest == null) {
-            _snack(l10n.errNeedEmptyCellForSteal);
-            return;
-          }
-          await _attackWithFly(handIndex, owner, row, col, card, dest);
-        }
-      }
-    } on IllegalMove catch (e) {
-      _snack(moveErrorText(l10n, e.error));
-    }
-  }
-
-  /// **빼앗기 연출**: 공격 카드가 잔상을 끌며 돌진 → **명중**(플래시·파편·진동·히트스톱)
-  /// → 맞은 카드가 크게 튕겨 나간 뒤 **내 줄로 날아와** 쉴드로 박힌다(글린트) →
-  /// 쓴 공격 카드는 무덤으로 → 보너스 배치 안내. 턴은 아직 내 것.
-  Future<void> _attackWithFly(int handIndex, PlayerId owner, int row, int col, PlayingCard weapon,
-      ({int row, int col}) dest) async {
-    final from = _rectFor(_handKeys.length > handIndex ? _handKeys[handIndex] : null);
-    final cellRect = _rectFor(_boardKey(owner, row, col));
-    final victim = state.fields[owner]![row][col]?.card;
-    if (from == null || cellRect == null || victim == null) {
-      state.attack(handIndex, row, col, dest.row, dest.col);
-      _playSfx(Sfx.attackHit);
-      _haptic(Haptic.impact);
-      _grave.add(weapon);
-      setState(() => selected = null);
-      await _afterMyAction();
-      return;
-    }
-    final overlay = Overlay.of(context);
-    setState(() {
-      _animating = true;
-      _flyingHandIndex = handIndex;
-    });
-    // 1) 공격 카드가 가속하며 타격 지점으로 돌진(잔상).
-    // 돌진음 = 실사 카드 슬라이드. 합성 휘잉(v1)은 8비트 게임처럼 들려 뺐다.
-    _playSfx(Sfx.cardSlide);
-    await flyCard(
-        overlay: overlay,
-        vsync: this,
-        from: from,
-        to: cellRect,
-        card: weapon,
-        duration: const Duration(milliseconds: 260),
-        curve: Curves.easeInCubic,
-        trail: true);
-    if (!mounted) return;
-    // 2) 명중 — 규칙 반영(상대 칸이 비고, 그 카드가 내 칸에 쉴드로 박힌다) +
-    //    타격 피드백. 히트스톱 한 박자가 "맞았다"를 만든다.
-    state.attack(handIndex, row, col, dest.row, dest.col);
-    _playSfx(Sfx.attackHit);
-    _haptic(Haptic.impact);
-    setState(() {
-      _flyingHandIndex = null;
-      // 빼앗은 카드는 아직 비행 전 — 안착할 때까지 목적지 칸을 숨긴다.
-      _concealedCell = (owner: me, row: dest.row, col: dest.col);
-    });
-    unawaited(sparkBurst(overlay: overlay, vsync: this, at: cellRect));
-    unawaited(hitFlash(overlay: overlay, vsync: this, at: cellRect));
-    await Future<void>.delayed(const Duration(milliseconds: 70));
-    if (!mounted) return;
-    // 3) 맞은 카드가 크게 튕겨 나간 뒤 내 칸으로 날아온다.
-    await poofCard(
-        overlay: overlay,
-        vsync: this,
-        rect: cellRect,
-        card: victim,
-        driftX: col.isEven ? 0.7 : -0.7);
-    if (!mounted) return;
-    final myRect = _rectFor(_boardKey(me, dest.row, dest.col));
-    if (myRect != null) {
-      _playSfx(Sfx.cardSlide);
-      await flyCard(
-        overlay: overlay,
-        vsync: this,
-        from: cellRect,
-        to: myRect,
-        card: state.lastStolen ?? victim,
-        duration: const Duration(milliseconds: 440),
-        spinTurns: 0.5,
-      );
-      if (!mounted) return;
-      // 안착 — 이제야 칸에 나타난다. 쉴드 고정: 금색 글린트 + 잠금 촉감.
-      setState(() => _concealedCell = null);
-      _playSfx(Sfx.shield);
-      _haptic(Haptic.shieldLock);
-      unawaited(shieldGlint(overlay: overlay, vsync: this, at: myRect));
-    } else {
-      setState(() => _concealedCell = null);
-    }
-    // 4) 쓴 공격 카드는 무덤으로.
-    final graveRect = _rectFor(_graveKey);
-    if (graveRect != null) {
-      await flyCard(
-        overlay: overlay,
-        vsync: this,
-        from: cellRect,
-        to: graveRect,
-        card: weapon,
-        duration: const Duration(milliseconds: 360),
-        spinTurns: 0.75,
-        endOpacity: 0.85,
-      );
-      if (!mounted) return;
-    }
-    setState(() {
-      _grave.add(weapon);
-      _animating = false;
-      selected = null;
-    });
-    if (widget.persona != null) _personaSay(widget.persona!.lines.removed);
-    await _afterMyAction();
-  }
-
-  /// 내 행동 뒤 처리: 보너스 배치가 남았으면 내 차례를 유지하고 안내만, 아니면 AI로 넘긴다.
-  Future<void> _afterMyAction() async {
-    if (state.pendingBonus && !state.isFinished) {
-      if (mounted) _snack(AppLocalizations.of(context).bonusPlacePrompt);
-      return;
-    }
-    await _maybeRunOpponent();
-  }
-
-  /// 손패[handIndex] → 보드 칸(targetOwner,row,col)으로 날아가 안착 후 [commit] 반영.
-  Future<void> _placeWithFly({
-    required int handIndex,
-    required PlayerId targetOwner,
-    required int row,
-    required int col,
-    required PlayingCard displayCard,
-    required void Function() commit,
-  }) async {
-    final from = _rectFor(_handKeys.length > handIndex ? _handKeys[handIndex] : null);
-    final to = _rectFor(_boardKey(targetOwner, row, col));
-    if (from == null || to == null) {
-      commit();
-      _playSfx(Sfx.cardPlace);
-      _haptic(Haptic.place);
-      setState(() => selected = null);
-      return;
-    }
-    setState(() {
-      _animating = true;
-      _flyingHandIndex = handIndex;
-    });
-    await flyCard(overlay: Overlay.of(context), vsync: this, from: from, to: to, card: displayCard);
-    if (!mounted) return;
-    commit();
-    _playSfx(Sfx.cardPlace);
-    _haptic(Haptic.place);
-    setState(() {
-      _animating = false;
-      _flyingHandIndex = null;
-      selected = null;
-    });
-    await _afterMyAction();
-  }
-
-  // ---- 상대(AI) ----
-
-  /// 지금이 상대(AI) 차례면, 더 이상 상대 차례가 아닐 때까지 자동으로 둔다.
-  Future<void> _maybeRunOpponent() async {
-    while (mounted && !state.isFinished && state.current == ai) {
-      setState(() => _animating = true);
-      await Future<void>.delayed(const Duration(milliseconds: 480));
-      if (!mounted) return;
-      final moved = await _aiPlayOneMove();
-      if (!mounted) return;
-      if (!moved) break;
-    }
-    if (mounted) {
-      setState(() => _animating = false);
-      _maybePlayResultSound();
-      _maybeRecordResult();
-    }
-  }
-
-  /// AI 한 수: 페르소나 전략이 고른 수를 연출과 함께 반영한다.
-  Future<bool> _aiPlayOneMove() async {
-    final lines = widget.persona?.lines;
-    AiMove move;
-    try {
-      move = _ai.decide(state, ai);
-    } on Object {
-      move = const FoldMove();
-    }
-
-    try {
-      switch (move) {
-        case FoldMove():
-          state.fold();
-          setState(() {});
-          return true;
-
-        case PlaceMove(
-            :final handIndex,
-            :final target,
-            :final row,
-            :final col,
-            :final jokerRank,
-            :final jokerSuit
-          ):
-          final card = state.hands[ai]![handIndex];
-          final display = card.isJoker ? card.designate(jokerRank!, jokerSuit!) : card;
-          final from = _rectFor(_oppHandKey);
-          final to = _rectFor(_boardKey(target, row, col));
-          if (from != null && to != null) {
-            await flyCard(
-                overlay: Overlay.of(context), vsync: this, from: from, to: to, card: display);
-            if (!mounted) return false;
-          }
-          if (card.isJoker) {
-            state.placeCard(handIndex, ai, row, col, jokerRank: jokerRank, jokerSuit: jokerSuit);
-            _playSfx(Sfx.cardPlace);
-            if (lines != null) _personaSay(lines.joker);
-          } else {
-            state.placeCard(handIndex, target, row, col);
-            _playSfx(Sfx.cardPlace);
-            // 변칙: 내 필드에 쉴드를 꽂았을 때
-            if (card.isShield && target == me && lines != null) {
-              _personaSay(lines.shieldTrick);
-            }
-          }
-          setState(() {});
-          return true;
-
-        case AttackMove(:final handIndex, :final row, :final col, :final myRow, :final myCol):
-          final weapon = state.hands[ai]![handIndex];
-          final victim = state.fields[me]![row][col]?.card;
-          final from = _rectFor(_oppHandKey);
-          final cellRect = _rectFor(_boardKey(me, row, col));
-          if (from != null && cellRect != null) {
-            _playSfx(Sfx.cardSlide);
-            await flyCard(
-                overlay: Overlay.of(context),
-                vsync: this,
-                from: from,
-                to: cellRect,
-                card: weapon,
-                duration: const Duration(milliseconds: 260),
-                curve: Curves.easeInCubic,
-                trail: true);
-            if (!mounted) return false;
-          }
-          state.attack(handIndex, row, col, myRow, myCol);
-          // 내 카드가 맞았다 — 내 공격과 똑같은 무게로 얻어맞아야 위협이 실감난다.
-          _playSfx(Sfx.attackHit);
-          _haptic(Haptic.impact);
-          if (victim != null && cellRect != null && mounted) {
-            final overlay = Overlay.of(context);
-            setState(() => _concealedCell = (owner: ai, row: myRow, col: myCol));
-            unawaited(sparkBurst(overlay: overlay, vsync: this, at: cellRect));
-            unawaited(hitFlash(overlay: overlay, vsync: this, at: cellRect));
-            await Future<void>.delayed(const Duration(milliseconds: 70));
-            if (!mounted) return false;
-            await poofCard(
-                overlay: overlay,
-                vsync: this,
-                rect: cellRect,
-                card: victim,
-                driftX: col.isEven ? -0.7 : 0.7);
-            // 빼앗긴 카드가 상대(AI) 줄로 날아간다.
-            final toRect = _rectFor(_boardKey(ai, myRow, myCol));
-            if (toRect != null && mounted) {
-              _playSfx(Sfx.cardSlide);
-              await flyCard(
-                  overlay: overlay,
-                  vsync: this,
-                  from: cellRect,
-                  to: toRect,
-                  card: state.lastStolen ?? victim,
-                  duration: const Duration(milliseconds: 440),
-                  spinTurns: 0.5);
-              if (mounted) {
-                _playSfx(Sfx.shield);
-                unawaited(shieldGlint(overlay: overlay, vsync: this, at: toRect));
-              }
-            }
-            if (mounted) setState(() => _concealedCell = null);
-          }
-          if (!mounted) return false;
-          _grave.add(weapon);
-          if (lines != null) _personaSay(lines.removeMine);
-          setState(() {});
-          return true;
-      }
-    } on IllegalMove {
-      // 전략이 계산한 수가 어긋나면(경합 등) 안전하게 폴드
-      state.fold();
-      setState(() {});
-      return true;
-    }
-  }
-
-  Rect? _rectFor(GlobalKey? key) {
-    final box = key?.currentContext?.findRenderObject() as RenderBox?;
-    if (box == null || !box.hasSize) return null;
-    return box.localToGlobal(Offset.zero) & box.size;
-  }
-
-  Future<void> _onFold() async {
-    if (!_myTurn) return;
-    final l10n = AppLocalizations.of(context);
-    try {
-      state.fold();
-      _haptic(Haptic.select);
-      setState(() => selected = null);
-      await _maybeRunOpponent();
-    } on IllegalMove catch (e) {
-      _snack(moveErrorText(l10n, e.error));
-    }
-  }
-
-  bool _isHighlighted(PlayerId owner, int row, int col) {
-    if (state.current != me) return false;
-    if (selected == null) return false;
-    final card = state.hands[me]![selected!];
-    final cell = state.fields[owner]![row][col];
-    if (owner == me) {
-      return !card.isShield && cell == null; // 내 줄 빈 칸(가운데부터)
-    }
-    if (cell == null) return card.isShield; // 상대 빈 칸: 쉴드만
-    return !card.isShield; // 상대 카드: 제거 후보
-  }
-
-  // ---- 토큰(유료 아이템) ----
-
-  /// 토큰 1개를 실제로 쓴다.
-  ///
-  /// 순서가 중요하다: **보유 확인 → 규칙 적용(실패하면 던진다) → 차감.**
-  /// 차감을 먼저 하면 규칙 위반으로 튕겼을 때 토큰만 사라진다.
-  Future<void> _useToken(TokenKind kind, void Function() apply) async {
-    final m = MonetizationScope.maybeOf(context);
-    if (m == null) return;
-    final l10n = AppLocalizations.of(context);
-
-    if (!m.wallet.has(kind)) {
-      _snackWithShop(l10n.tokenEmpty(tokenName(l10n, kind)));
-      return;
-    }
-    try {
-      apply();
-    } on IllegalMove catch (e) {
-      _snack(moveErrorText(l10n, e.error));
-      return;
-    }
-    await m.wallet.spend(kind);
-    _playSfx(kind == TokenKind.shield ? Sfx.shield : Sfx.token);
-    _haptic(Haptic.token);
-    if (!mounted) return;
-    setState(() => _tokenMode = null);
-    _snack(kind == TokenKind.shield ? l10n.tokenShieldDone : l10n.tokenAttackDone);
-  }
-
-  /// 토큰 버튼. 남은 보유량을 배지로 보여주고, 누르면 대상 지정 모드로 들어간다.
-  ///
-  /// 지갑이 없는 환경(위젯 테스트·스크린샷)에서는 아예 그리지 않는다.
-  Widget? _tokenButton(AppLocalizations l10n, TokenKind kind) {
-    final m = MonetizationScope.maybeOf(context);
-    if (m == null) return null;
-    final color = tokenColor(kind);
-
-    return AnimatedBuilder(
-      animation: m.wallet,
-      builder: (context, _) {
-        final owned = m.wallet.balanceOf(kind);
-        final left =
-            kind == TokenKind.shield ? state.shieldDeclarationsLeft(me) : state.attackMarksLeft(me);
-        final active = _tokenMode == kind && _myTurn;
-        final usable = _myTurn && left > 0 && owned > 0;
-
-        return Tooltip(
-          message: tokenName(l10n, kind),
-          child: OutlinedButton(
-            onPressed: _myTurn ? () => _onTokenPressed(l10n, kind, left, owned) : null,
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
-              minimumSize: Size.zero,
-              backgroundColor: active ? color.withValues(alpha: 0.22) : null,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              side: BorderSide(
-                color: color.withValues(alpha: active ? 1 : (usable ? 0.55 : 0.22)),
-                width: active ? 1.8 : 1.4,
+  /// 공개/최후 공개 배너.
+  Widget _bannerOverlay(String text) {
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: Center(
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0, end: 1),
+            duration: const Duration(milliseconds: 260),
+            builder: (context, t, child) => Opacity(
+                opacity: t,
+                child: Transform.scale(scale: 0.85 + 0.15 * t, child: child)),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 12),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: AppColors.gold, width: 1.6),
+                boxShadow: AppShapes.panelShadow,
               ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(tokenIcon(kind), size: 18, color: color.withValues(alpha: usable ? 1 : 0.4)),
-                const SizedBox(width: 4),
-                Text('$owned',
-                    style: TextStyle(
-                      color: color.withValues(alpha: usable ? 1 : 0.4),
+              child: Text(text,
+                  style: const TextStyle(
+                      color: AppColors.gold,
                       fontWeight: FontWeight.w900,
-                      fontSize: 12,
-                    )),
-              ],
+                      fontSize: 20,
+                      letterSpacing: 2)),
             ),
           ),
-        );
-      },
-    );
-  }
-
-  void _onTokenPressed(AppLocalizations l10n, TokenKind kind, int left, int owned) {
-    // 판당 상한이 먼저다 — 토큰을 갖고 있어도 이 판에서 이미 썼으면 못 쓴다.
-    if (left <= 0) {
-      _snack(l10n.tokenUsedThisMatch(tokenName(l10n, kind)));
-      return;
-    }
-    if (owned <= 0) {
-      _snackWithShop(l10n.tokenEmpty(tokenName(l10n, kind)));
-      return;
-    }
-    setState(() {
-      _tokenMode = _tokenMode == kind ? null : kind;
-      if (_tokenMode != null) selected = null; // 배치 선택과 겹치지 않게
-    });
-    if (_tokenMode == kind) {
-      _snack(kind == TokenKind.shield ? l10n.tokenShieldPrompt : l10n.tokenAttackPrompt);
-    }
-  }
-
-  /// "토큰이 없습니다" 안내 + 상점 바로가기. 게임을 끊지 않는 선에서의 유일한 판매 접점이다.
-  void _snackWithShop(String msg) {
-    final l10n = AppLocalizations.of(context);
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(
-        content: Text(msg),
-        duration: const Duration(seconds: 3),
-        action: SnackBarAction(
-          label: l10n.goToShop,
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(builder: (_) => const ShopScreen()),
-          ),
         ),
-      ));
-  }
-
-  void _snack(String msg) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(msg), duration: const Duration(seconds: 2)));
-  }
-
-  Future<(int, Suit)?> _showJokerPicker() {
-    final l10n = AppLocalizations.of(context);
-    var rank = Ranks.all.first;
-    var suit = Suit.spades;
-    return showDialog<(int, Suit)>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(l10n.jokerPickTitle),
-        content: StatefulBuilder(
-          builder: (context, setLocal) => Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              DropdownButton<int>(
-                isExpanded: true,
-                value: rank,
-                items: [
-                  for (final r in Ranks.all)
-                    DropdownMenuItem(value: r, child: Text('${l10n.numberLabel}: ${rankLabel(r)}'))
-                ],
-                onChanged: (v) => setLocal(() => rank = v ?? rank),
-              ),
-              DropdownButton<Suit>(
-                isExpanded: true,
-                value: suit,
-                items: [
-                  for (final s in Suit.values)
-                    DropdownMenuItem(value: s, child: Text('${l10n.suitLabel}: ${s.symbol}'))
-                ],
-                onChanged: (v) => setLocal(() => suit = v ?? suit),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: Text(l10n.cancel)),
-          FilledButton(
-              onPressed: () => Navigator.pop(context, (rank, suit)), child: Text(l10n.confirm)),
-        ],
       ),
     );
   }
 
-  // ---- 결과 ----
-
-  Widget _resultOverlay(AppLocalizations l10n) {
-    final r = state.result(me);
-    final (resultText, resultColor) = switch (r.outcome) {
-      MatchOutcome.win => (l10n.resultWin, AppColors.win),
-      MatchOutcome.lose => (l10n.resultLose, AppColors.lose),
-      MatchOutcome.draw => (l10n.resultDraw, AppColors.tie),
-    };
-    final size = MediaQuery.sizeOf(context);
-    final landscape = size.width > size.height;
-    final compact = size.height < 560;
-    final oppName = widget.persona?.name ?? l10n.player2;
-
-    // 페르소나 마무리 대사(승패에 맞는 목록에서 결정적으로 한 줄).
-    final personaLines = switch (r.outcome) {
-      MatchOutcome.win => widget.persona?.lines.loseGame,
-      MatchOutcome.lose => widget.persona?.lines.winGame,
-      MatchOutcome.draw => widget.persona?.lines.drawGame,
+  Widget _resultOverlay(AppLocalizations l10n, MatchResult res) {
+    // 결과 대사는 **상대 입장**이다 — 내가 이겼으면 상대는 진 대사를 한다.
+    final personaLines = switch (res.outcome) {
+      MatchOutcome.win => _lines?.loseGame,
+      MatchOutcome.lose => _lines?.winGame,
+      MatchOutcome.draw => _lines?.drawGame,
     };
     final personaLine = (personaLines == null || personaLines.isEmpty)
         ? null
-        : personaLines[(r.myTotal + r.opponentTotal) % personaLines.length];
-
-    final header = Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Row(
-        children: [
-          Expanded(
-              child: Text(l10n.resultMeLabel,
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(
-                      color: AppColors.mePrimary,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 12,
-                      letterSpacing: 1))),
-          const SizedBox(width: 56),
-          Expanded(
-              child: Text(oppName,
-                  style: TextStyle(
-                      color: widget.persona?.color ?? AppColors.oppPrimary,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 12,
-                      letterSpacing: 1))),
-        ],
-      ),
-    );
-
-    final lines = Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [header, for (var i = 0; i < kRows; i++) _resultLine(l10n, i)],
-    );
-
-    final resultHead = Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Text('GAME OVER',
-            style: TextStyle(
-                fontSize: 12,
-                color: AppColors.textMuted,
-                letterSpacing: 3,
-                fontWeight: FontWeight.w700)),
-        SizedBox(height: compact ? 4 : 8),
-        Text(resultText,
-            style: TextStyle(
-                fontSize: compact ? 26 : 34,
-                fontWeight: FontWeight.w900,
-                color: resultColor,
-                letterSpacing: 1)),
-        if (personaLine != null) ...[
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: AppColors.cardBody,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.goldDeep),
-            ),
-            child: Text('“$personaLine”',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                    color: AppColors.ink, fontWeight: FontWeight.w700, fontSize: 12)),
-          ),
-        ],
-      ],
-    );
-
-    final totalAndButton = Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(height: 1, color: AppColors.stroke),
-        SizedBox(height: compact ? 8 : 10),
-        Row(
-          children: [
-            Expanded(
-                child: Text('${r.myTotal}',
-                    textAlign: TextAlign.right,
-                    style: const TextStyle(
-                        color: AppColors.mePrimary, fontWeight: FontWeight.w900, fontSize: 20))),
-            const SizedBox(width: 12),
-            const Text('TOTAL',
-                style: TextStyle(
-                    color: AppColors.textMuted,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 11,
-                    letterSpacing: 1)),
-            const SizedBox(width: 12),
-            Expanded(
-                child: Text('${r.opponentTotal}',
-                    style: const TextStyle(
-                        color: AppColors.oppPrimary, fontWeight: FontWeight.w900, fontSize: 20))),
-          ],
-        ),
-        SizedBox(height: compact ? 12 : 20),
-        FilledButton.icon(
-            onPressed: () => setState(_start),
-            icon: const Icon(Icons.refresh_rounded),
-            label: Text(l10n.newGame)),
-      ],
-    );
-
-    // 가로: [줄별 결과 | 요약] 2단 배치 — 세로 공간이 좁아도 아래가 잘리지 않는다.
-    final content = landscape
-        ? Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Expanded(child: lines),
-              Container(
-                  width: 1,
-                  height: 168,
-                  color: AppColors.stroke,
-                  margin: const EdgeInsets.symmetric(horizontal: 18)),
-              SizedBox(
-                width: 250,
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  resultHead,
-                  SizedBox(height: compact ? 10 : 14),
-                  totalAndButton,
-                ]),
-              ),
-            ],
-          )
-        : Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              resultHead,
-              const SizedBox(height: 14),
-              lines,
-              const SizedBox(height: 10),
-              totalAndButton,
-            ],
-          );
-
-    return _scrim(compact: compact, child: content);
-  }
-
-  /// 줄별 결과 한 줄: 가운데 줄 번호 칩(승패 색 단색), 이긴 쪽에 하이라이트 + 체크.
-  Widget _resultLine(AppLocalizations l10n, int i) {
-    final my = _cards(me, i), op = _cards(ai, i);
-    final myE = evaluateHand(my), opE = evaluateHand(op);
-    final o = compareLine(my, op);
-    final oc = switch (o) {
-      LineOutcome.win => AppColors.win,
-      LineOutcome.lose => AppColors.lose,
-      LineOutcome.tie => AppColors.tie,
+        : personaLines[(res.myTotal + res.opponentTotal) % personaLines.length];
+    final title = switch (res.outcome) {
+      MatchOutcome.win => l10n.matchWin,
+      MatchOutcome.lose => l10n.matchLose,
+      MatchOutcome.draw => l10n.matchDraw,
     };
-
-    Widget side(HandResult e, {required bool winner, required bool alignRight}) {
-      final texts = Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: alignRight ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-        children: [
-          Text(handCategoryName(l10n, e.category),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: winner ? AppColors.textMain : AppColors.textMuted,
-                fontWeight: winner ? FontWeight.w900 : FontWeight.w600,
-                fontSize: 13.5,
-              )),
-          Text(l10n.scorePoints(e.score),
-              style: const TextStyle(
-                  color: AppColors.textMuted, fontSize: 11, fontWeight: FontWeight.w600)),
-        ],
-      );
-      // 긴 족보명(영문 등)이 좁은 화면에서 넘치지 않게 유연 폭 + 줄임표.
-      final child = Row(
-        mainAxisSize: MainAxisSize.min,
-        children: alignRight
-            ? [
-                Flexible(child: texts),
-                if (winner) ...[
-                  const SizedBox(width: 5),
-                  Icon(Icons.check_circle_rounded, size: 15, color: oc),
+    final color = switch (res.outcome) {
+      MatchOutcome.win => AppColors.gold,
+      MatchOutcome.lose => AppColors.oppPrimary,
+      MatchOutcome.draw => AppColors.textMuted,
+    };
+    return Positioned.fill(
+      child: ColoredBox(
+        color: AppColors.ink.withValues(alpha: 0.6),
+        child: Center(
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 30),
+            padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 24),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: color, width: 1.8),
+              boxShadow: AppShapes.panelShadow,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(title,
+                    style: TextStyle(
+                        color: color, fontWeight: FontWeight.w900, fontSize: 26)),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (var i = 0; i < res.lineOutcomes.length; i++)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: Icon(
+                          switch (res.lineOutcomes[i]) {
+                            LineOutcome.win => Icons.check_circle_rounded,
+                            LineOutcome.lose => Icons.cancel_rounded,
+                            LineOutcome.tie => Icons.remove_circle_rounded,
+                          },
+                          size: 22,
+                          color: switch (res.lineOutcomes[i]) {
+                            LineOutcome.win => AppColors.mePrimary,
+                            LineOutcome.lose => AppColors.oppPrimary,
+                            LineOutcome.tie => AppColors.textMuted,
+                          },
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text('${res.myTotal} : ${res.opponentTotal}',
+                    style: const TextStyle(
+                        color: AppColors.textMain,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 18)),
+                if (personaLine != null) ...[
+                  const SizedBox(height: 14),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: widget.persona!.badgeBg,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: widget.persona!.color, width: 1.6),
+                        ),
+                        padding: const EdgeInsets.all(4),
+                        child: PersonaIcon(
+                          asset: widget.persona!.asset,
+                          size: 36,
+                          colorOverrides: widget.persona!.colorOverrides,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Flexible(
+                        child: Text('“$personaLine”',
+                            style: const TextStyle(
+                                color: AppColors.textMain,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                                height: 1.35)),
+                      ),
+                    ],
+                  ),
                 ],
-              ]
-            : [
-                if (winner) ...[
-                  Icon(Icons.check_circle_rounded, size: 15, color: oc),
-                  const SizedBox(width: 5),
-                ],
-                Flexible(child: texts),
+                const SizedBox(height: 18),
+                // 좁은 화면·긴 번역에서도 넘치지 않게 줄바꿈을 허용한다.
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    FilledButton(onPressed: _restart, child: Text(l10n.playAgain)),
+                    OutlinedButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: Text(l10n.exitGame),
+                    ),
+                  ],
+                ),
               ],
-      );
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: winner
-            ? BoxDecoration(
-                color: Color.alphaBlend(oc.withValues(alpha: 0.20), AppColors.surface),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: oc, width: 1),
-              )
-            : null,
-        child: child,
-      );
-    }
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          Expanded(
-              child: Align(
-                  alignment: Alignment.centerRight,
-                  child: side(myE, winner: o == LineOutcome.win, alignRight: true))),
-          Container(
-            width: 40,
-            margin: const EdgeInsets.symmetric(horizontal: 8),
-            padding: const EdgeInsets.symmetric(vertical: 5),
-            decoration: BoxDecoration(color: oc, borderRadius: BorderRadius.circular(9)),
-            child: Text(l10n.lineN(i + 1),
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                    color: AppColors.ink, fontWeight: FontWeight.w900, fontSize: 11.5)),
+            ),
           ),
-          Expanded(
-              child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: side(opE, winner: o == LineOutcome.lose, alignRight: false))),
-        ],
+        ),
       ),
     );
   }
-
-
-
-  /// 어두운 배경 위 카드형 패널 오버레이(골드 테두리).
-  /// 내용이 화면보다 크면 패널 안에서 스크롤한다(오버플로 방지).
-  Widget _scrim({required Widget child, bool compact = false}) => Container(
-        color: Colors.black.withValues(alpha: 0.55),
-        alignment: Alignment.center,
-        child: Container(
-          margin: EdgeInsets.all(compact ? 14 : 28),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: AppColors.gold.withValues(alpha: 0.45), width: 1.2),
-            boxShadow: [
-              BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.5),
-                  blurRadius: 30,
-                  offset: const Offset(0, 12))
-            ],
-          ),
-          child: SingleChildScrollView(
-            padding:
-                EdgeInsets.symmetric(horizontal: compact ? 22 : 28, vertical: compact ? 14 : 32),
-            child: child,
-          ),
-        ),
-      );
 }
 
-// ---- 작은 위젯들 ----
-
-/// 이모트 말풍선: 아이보리 벌룬 안에서 로티 표정이 재생된다. 스케일 팝 등장.
-/// 페르소나 대사 말풍선: 아이보리 벌룬 + 잉크 텍스트, 스케일 팝 등장.
+/// 상대 캐릭터 대사 말풍선 — 아바타 옆에 스케일 팝으로 등장한다.
 class _SpeechBubble extends StatelessWidget {
   const _SpeechBubble({super.key, required this.text});
   final String text;
@@ -1589,7 +1379,8 @@ class _SpeechBubble extends StatelessWidget {
         duration: const Duration(milliseconds: 240),
         curve: Curves.easeOutBack,
         builder: (context, t, child) => Opacity(
-            opacity: t.clamp(0.0, 1.0), child: Transform.scale(scale: 0.7 + 0.3 * t, child: child)),
+            opacity: t.clamp(0.0, 1.0),
+            child: Transform.scale(scale: 0.7 + 0.3 * t, child: child)),
         child: Container(
           constraints: const BoxConstraints(maxWidth: 260),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -1606,14 +1397,17 @@ class _SpeechBubble extends StatelessWidget {
           ),
           child: Text(text,
               style: const TextStyle(
-                  color: AppColors.ink, fontWeight: FontWeight.w700, fontSize: 13, height: 1.35)),
+                  color: AppColors.ink,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                  height: 1.35)),
         ),
       ),
     );
   }
 }
 
-/// 현재 이기고 있는 줄 수를 골드 도트 3개로 표시(글자 없음).
+/// 줄 승수 알약 — 공개 정보 기준.
 class _WinsPill extends StatelessWidget {
   const _WinsPill({required this.count, required this.color});
   final int count;
@@ -1622,28 +1416,14 @@ class _WinsPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(20),
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color, width: 1.3),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (var i = 0; i < kRows; i++)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 2.5),
-              child: Container(
-                width: 9,
-                height: 9,
-                decoration: BoxDecoration(
-                  color: i < count ? color : color.withValues(alpha: 0.20),
-                  shape: BoxShape.circle,
-                ),
-              ),
-            ),
-        ],
-      ),
+      child: Text('$count',
+          style: TextStyle(color: color, fontWeight: FontWeight.w900, fontSize: 13)),
     );
   }
 }

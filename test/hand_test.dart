@@ -139,16 +139,6 @@ void main() {
       expect(h.category, HandCategory.straightFlush);
     });
 
-    test('파이브 카드 (조커 와일드 포함)', () {
-      final h = evaluateHand(const [
-        PlayingCard(Ranks.king, Suit.clubs),
-        PlayingCard(Ranks.king, Suit.hearts),
-        PlayingCard(Ranks.king, Suit.spades),
-        PlayingCard(Ranks.king, Suit.diamonds),
-        PlayingCard(Ranks.king, Suit.spades, isJoker: true), // 조커 → K 지정
-      ]);
-      expect(h.category, HandCategory.fiveOfAKind);
-    });
   });
 
   group('동급 숫자값(보너스 포함)', () {

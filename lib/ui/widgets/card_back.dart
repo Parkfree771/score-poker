@@ -5,6 +5,7 @@ import '../../domain/card.dart';
 import '../theme.dart';
 import 'card_face.dart';
 import 'suit_glyphs.dart';
+import 'veil_shimmer.dart';
 
 /// 뒤집힌 카드 한 장(상대 손패용). [CardFace]와 동일한 프레임/비율.
 ///
@@ -50,22 +51,36 @@ class CardBack extends StatelessWidget {
   }
 }
 
-/// **홀카드 필**: 덮인 카드의 모서리가 살짝 들려 숫자·무늬가 보인다.
+/// **홀카드 필**: 덮인 카드의 모서리가 들려 숫자·무늬가 보인다.
 ///
 /// 가림 룰에서 "상대에겐 뒷면인데 나는 내용을 아는" 내 카드의 표현.
 /// 포커에서 홀카드를 손끝으로 들춰 보는 바로 그 동작이다 — 뒷면이 그대로 보이므로
 /// "덮여 있다"가 전달되고, 들린 모서리의 랭크·무늬로 "나는 안다"가 전달된다.
+///
+/// 들린 면은 **카드 폭의 0.72**까지 넓혔다. 그 전(0.52)에는 "10♦"처럼 두 글자짜리
+/// 랭크가 삼각형 안에서 잘려 나갔다 — 내가 아는 카드인데 못 읽으면 표현의 의미가 없다.
+///
+/// [veiled]면 뒷면과 들린 면 **사이**에 검은 일렁거림([VeilShimmer])이 깔린다.
+/// 순서가 중요하다: 그늘은 뒷면 위에, 숫자는 그늘 위에.
 class PeekCardBack extends StatelessWidget {
-  const PeekCardBack({super.key, required this.card, required this.size});
+  const PeekCardBack({
+    super.key,
+    required this.card,
+    required this.size,
+    this.veiled = false,
+    this.veilPhase = 0,
+  });
 
   final PlayingCard card;
   final double size;
+  final bool veiled;
+  final double veilPhase;
 
   @override
   Widget build(BuildContext context) {
     final w = size;
     final h = CardBack.heightFor(w);
-    final fold = w * 0.52; // 들리는 모서리 한 변 길이
+    final fold = w * 0.72; // 들리는 모서리 한 변 길이
     final red = suitIsRed(card.suit);
     return SizedBox(
       width: w,
@@ -73,6 +88,12 @@ class PeekCardBack extends StatelessWidget {
       child: Stack(
         children: [
           Positioned.fill(child: cachedCardBack(w)),
+          if (veiled)
+            Positioned.fill(
+              // 내 카드는 숫자를 읽어야 하니 상대 카드보다 그늘을 얕게 깐다.
+              child: VeilShimmer(
+                  radius: w * 0.16, phase: veilPhase, intensity: 0.78),
+            ),
           // 오른쪽 아래 모서리가 들려 속(아이보리)이 드러난다.
           Positioned(
             right: w * 0.045,
@@ -87,15 +108,25 @@ class PeekCardBack extends StatelessWidget {
                   children: [
                     // 접힌 선(대각선) — 들렸다는 인상을 주는 최소한의 음영선
                     CustomPaint(size: Size(fold, fold), painter: _FoldEdgePainter()),
-                    Align(
-                      alignment: const Alignment(0.55, 0.6),
-                      child: Text(
-                        '${rankLabel(card.rank)}${card.suit.symbol}',
-                        style: TextStyle(
-                          color: red ? AppColors.red : AppColors.dark,
-                          fontWeight: FontWeight.w900,
-                          fontSize: fold * 0.4,
-                          height: 1,
+                    // 삼각형의 가장 두꺼운 구석에 랭크+무늬. FittedBox라 어떤 크기에서도
+                    // 잘리지 않고 줄어들 뿐이다.
+                    Positioned(
+                      right: fold * 0.07,
+                      bottom: fold * 0.06,
+                      width: fold * 0.66,
+                      height: fold * 0.44,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.bottomRight,
+                        child: Text(
+                          '${rankLabel(card.rank)}${card.suit.symbol}',
+                          maxLines: 1,
+                          style: TextStyle(
+                            color: red ? AppColors.red : AppColors.dark,
+                            fontWeight: FontWeight.w900,
+                            fontSize: fold * 0.34,
+                            height: 1,
+                          ),
                         ),
                       ),
                     ),
