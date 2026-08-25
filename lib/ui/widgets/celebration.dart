@@ -171,10 +171,14 @@ class _BannerState extends State<_Banner> with SingleTickerProviderStateMixin {
     const depthTop = Color(0xFF47100A); // 두께 최상단(면 바로 아래)
     const depthBottom = Color(0xFF0F0301); // 두께 최하단
     const depth = 14; // 3D 돌출량(px)
-    const style = TextStyle(
-      fontFamily: 'AlfaSlabOne',
-      fontSize: 58,
-      letterSpacing: 1,
+    // 슬라브 폰트에는 한글이 없다 — 라틴 제목만 슬라브, 그 외(한글 족보명)는
+    // 기본 서체의 최고 굵기로. 두께 쌓기(3D)는 서체와 무관하게 먹는다.
+    final latin = RegExp(r'^[A-Za-z0-9 !?.\-]+$').hasMatch(widget.title);
+    final style = TextStyle(
+      fontFamily: latin ? 'AlfaSlabOne' : null,
+      fontWeight: latin ? null : FontWeight.w900,
+      fontSize: latin ? 58 : 52,
+      letterSpacing: latin ? 1 : 2,
       height: 1.0,
     );
     Text fillText(Color color) => Text(widget.title, style: style.copyWith(color: color));

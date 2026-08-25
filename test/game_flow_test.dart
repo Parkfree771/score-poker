@@ -4,7 +4,9 @@ import 'package:score_poker/l10n/app_localizations.dart';
 import 'package:score_poker/l10n/app_localizations_ko.dart';
 import 'package:score_poker/ui/game_screen.dart';
 import 'package:score_poker/ui/personas.dart';
+import 'package:score_poker/ui/theme.dart';
 import 'package:score_poker/ui/widgets/board_view.dart';
+import 'package:score_poker/ui/widgets/card_back.dart';
 import 'package:score_poker/ui/widgets/veil_chip.dart';
 
 /// **한 판을 실제로 끝까지 눌러 본다.** 도메인 테스트가 통과해도 화면에서
@@ -94,7 +96,14 @@ void main() {
         await tester.tap(labeled('cell-p0-0-${round - 1}'), warnIfMissed: false);
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 400));
-        expect(find.byType(SealStamp), findsOneWidget, reason: '봉인 도장');
+        // 상대가 지난 라운드에 숨긴 카드에도 상대 칩이 앉아 있을 수 있다 — 내 칩만 센다.
+        expect(
+            tester
+                .widgetList<ChipBadge>(find.byType(ChipBadge))
+                .where((b) => b.ring == AppColors.mePrimary)
+                .length,
+            1,
+            reason: '봉인 = 카드 위 내 칩');
         final coinsAfter = tester
             .widgetList<VeilChip>(find.byType(VeilChip))
             .where((c) => c.filled)
@@ -121,7 +130,7 @@ void main() {
     }
 
     // 모든 칸이 공개됐다 — 봉인도, 뒷면도 남지 않는다.
-    expect(find.byType(SealStamp), findsNothing);
+    expect(find.byType(PeekCardBack), findsNothing);
 
     // ── 다시 하기 ───────────────────────────────────────────────────────────
     await tester.tap(find.text(l10n.playAgain));

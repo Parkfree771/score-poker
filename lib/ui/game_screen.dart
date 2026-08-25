@@ -70,6 +70,16 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   int? selected;
   int? _flyingHandIndex;
   final Set<(int, int)> _hideMarks = {};
+
+  /// 비공개권으로 열어본 칸 → 연 사람. 카드는 앞면이 됐지만 칩은 그 위에 남는다.
+  final Map<(PlayerId, int, int), PlayerId> _peekedBy = {};
+
+  /// 열어보기 연출 중(칩 비행) — 중복 탭 방지.
+  bool _peeking = false;
+
+  final Map<(PlayerId, int), GlobalKey<VeilChipState>> _chipKeys = {};
+  GlobalKey<VeilChipState> _chipKey(PlayerId p, int i) =>
+      _chipKeys.putIfAbsent((p, i), () => GlobalKey<VeilChipState>(debugLabel: 'chip-$p-$i'));
   MatchResult? _result;
   String? _banner; // 공개/최후 공개 배너 문구
   int _dealtMine = 0; // 딜링 연출 중 보이는 내 손패 장수
@@ -151,6 +161,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   bool get _frozen => widget.initialGame != null;
 
   void _restart() {
+    _peekedBy.clear();
     if (_frozen) return;
     _seq++;
     _ticker?.cancel();
@@ -342,17 +353,18 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     Future<void>.delayed(Duration(milliseconds: 6000 + _rng.nextInt(6000)), () {
       if (!mounted || seq != _seq || _phase != _Phase.placing) return;
       final target = _ai.peek(g, ai);
-      if (target == null) return;
-      g.peek(ai, target.$1, target.$2);
-      _playSfx(Sfx.attackHit);
-      _haptic(Haptic.impact);
-      setState(() {});
-      _snack(AppLocalizations.of(context).vlOppPeeked);
-      _say(_lines?.peek);
-      final rect = _rectFor(_cellKey(me, target.$1, target.$2));
-      if (rect != null && mounted) {
-        unawaited(hitFlash(overlay: Overlay.of(context), vsync: this, at: rect));
-      }
+      if (target == null || _peeking) return;
+      unawaited(() async {
+        _peeking = true;
+        try {
+          await _peekWithChip(by: ai, row: target.$1, col: target.$2);
+        } finally {
+          _peeking = false;
+        }
+        if (!mounted || seq != _seq) return;
+        _snack(AppLocalizations.of(context).vlOppPeeked);
+        _say(_lines?.peek);
+      }());
     });
   }
 
@@ -674,17 +686,96 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   /// 뒤집힌(지난 라운드에 숨겨진) 상대 카드를 클릭하면 비공개권으로 뒤집는다.
   Future<void> _tapPeek(int r, int c) async {
-    if (g.veilLeft[me]! <= 0) return;
+    if (g.veilLeft[me]! <= 0 || _peeking) return;
     final slot = g.fields[ai]![r][c];
     if (slot == null || slot.faceUp || slot.round >= g.round) return;
-    setState(() => g.peek(me, r, c));
-    _playSfx(Sfx.token);
-    _haptic(Haptic.shieldLock);
-    final rect = _rectFor(_cellKey(ai, r, c));
-    if (rect != null && mounted) {
-      unawaited(shieldGlint(overlay: Overlay.of(context), vsync: this, at: rect));
+    _peeking = true;
+    try {
+      await _peekWithChip(by: me, row: r, col: c);
+    } finally {
+      _peeking = false;
     }
-    _say(_lines?.peeked);
+    if (mounted) _say(_lines?.peeked);
+  }
+
+  /// 열어보기 연출 — 세 박자. 유치한 폭발 없이, 소리와 타이밍으로만.
+  ///
+  /// 1. **팅**: 레일의 마지막 칩이 제자리에서 튀어 오른다(chipPing).
+  /// 2. **비행**: 그 칩이 상대 칸으로 날아간다(가속, 구르듯 기울며).
+  /// 3. **착**: 닿는 프레임에 뒷면이 쳐내져 날아가고 앞면이 드러난다(chipFlick).
+  ///    칩은 그 카드 위에 남는다([_peekedBy]).
+  ///
+  /// 규칙 적용(`g.peek`)은 3에서만 일어난다 — 연출 중 판이 바뀌면(seq) 그냥 접는다.
+  Future<void> _peekWithChip({
+    required PlayerId by,
+    required int row,
+    required int col,
+  }) async {
+    final seq = _seq;
+    final target = by == me ? ai : me;
+    final slot = g.fields[target]![row][col];
+    if (slot == null) return;
+    final ring = by == me ? AppColors.mePrimary : AppColors.oppPrimary;
+    final filled = by == me ? g.veilLeft[me]! - _hideMarks.length : g.veilLeft[ai]!;
+    final chipKey = _chipKeys[(by, filled - 1)];
+    final cellKey = _cellKey(target, row, col);
+
+    // 1) 팅
+    _playSfx(Sfx.chipPing);
+    _haptic(Haptic.select);
+    await (chipKey?.currentState?.bounce() ??
+        Future<void>.delayed(const Duration(milliseconds: 190)));
+    if (!mounted || seq != _seq) return;
+
+    // 2) 비행
+    final from = _rectFor(chipKey), to = _rectFor(cellKey);
+    if (from != null && to != null) {
+      final d = to.width * 0.62;
+      await flyChip(
+        overlay: Overlay.of(context),
+        vsync: this,
+        from: Rect.fromCenter(center: from.center, width: from.width, height: from.width),
+        to: Rect.fromCenter(center: to.center, width: d, height: d),
+        ring: ring,
+      );
+    }
+    if (!mounted || seq != _seq) return;
+
+    // 3) 착 — 규칙 적용 + 뒷면 녹아웃
+    setState(() {
+      g.peek(by, row, col);
+      _peekedBy[(target, row, col)] = by;
+    });
+    _playSfx(Sfx.chipFlick);
+    _haptic(Haptic.shieldLock);
+    if (to != null) {
+      final overlay = Overlay.of(context);
+      unawaited(poofCard(
+        overlay: overlay,
+        vsync: this,
+        rect: to,
+        card: slot.card,
+        faceDown: true,
+        driftX: by == me ? 0.7 : -0.7,
+        duration: const Duration(milliseconds: 300),
+      ));
+      unawaited(hitFlash(overlay: overlay, vsync: this, at: to));
+    }
+  }
+
+  /// 칸 위에 앉은 칩의 주인 색. 숨긴 카드에는 숨긴 쪽 칩, 열어본 카드에는 연 쪽 칩.
+  Color? _chipOn(PlayerId owner, int row, int col) {
+    final s = g.fields[owner]![row][col];
+    if (s == null) return null;
+    if (_peekedBy[(owner, row, col)] case final by?) {
+      return by == me ? AppColors.mePrimary : AppColors.oppPrimary;
+    }
+    if (s.faceUp) return null;
+    if (owner == me) {
+      final veiled = _hideMarks.contains((row, col)) || s.round < g.round || g.revealDone;
+      return veiled ? AppColors.mePrimary : null;
+    }
+    return (s.round < g.round || g.revealDone) ? AppColors.oppPrimary : null;
   }
 
   // ---- build (기존 게임 화면과 같은 뼈대) ----
@@ -877,6 +968,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     final l10n = AppLocalizations.of(context);
     final mine = ring == AppColors.mePrimary;
     return VeilChip(
+      key: _chipKey(mine ? me : ai, i),
       size: size,
       filled: i < filled,
       ring: ring,
@@ -1049,6 +1141,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         onCellTap: _onCellTap,
         isHighlighted: _isHighlighted,
         lookOf: _lookOf,
+        chipOn: _chipOn,
         lineCardsOf: (p, line) => g.publicRow(p, line),
         cellKeyFor: _cellKey,
         landscape: landscape,

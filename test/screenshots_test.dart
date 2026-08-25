@@ -24,6 +24,7 @@ import 'package:score_poker/ui/widgets/celebration.dart';
 import 'package:score_poker/ui/theme.dart';
 import 'package:score_poker/ui/widgets/board_view.dart';
 import 'package:score_poker/ui/widgets/card_back.dart';
+import 'package:score_poker/ui/widgets/veil_chip.dart';
 import 'package:score_poker/ui/widgets/veil_shimmer.dart';
 import 'package:score_poker/ui/widgets/card_face.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -378,7 +379,7 @@ void main() {
     await tester.pump(const Duration(seconds: 4));
   });
 
-  Widget celebrationDemo({String title = 'FOUR CARD!', String subtitle = '포카드'}) => Stack(
+  Widget celebrationDemo({String title = '포카드', String subtitle = ''}) => Stack(
         key: const Key('celebration-demo'),
         children: [
           GameScreen(initialGame: _demoState()),
@@ -390,7 +391,7 @@ void main() {
   testWidgets('celebration long title', (tester) async {
     await setScreen(tester, _portrait);
     await tester.pumpWidget(
-        _app(celebrationDemo(title: 'STRAIGHT FLUSH!', subtitle: '스트레이트 플러쉬')));
+        _app(celebrationDemo(title: '스트레이트 플러쉬')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     await expectLater(find.byKey(const Key('celebration-demo')),
@@ -420,6 +421,27 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
     }
     await tester.pump(const Duration(seconds: 2));
+  });
+
+  /// 열어보기 연출 — 팅(레일 홉) → 칩 비행 → 착(뒷면 녹아웃, 칩이 카드 위에 남는다).
+  /// 정지 모드 판에서 상대의 지난 라운드 숨김 카드(cell-p1-1-1)를 누른다.
+  testWidgets('peek animation frames', (tester) async {
+    await setScreen(tester, _portrait);
+    await tester.pumpWidget(_app(GameScreen(initialGame: _demoState())));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(
+        find.byWidgetPredicate(
+            (w) => w.key is GlobalKey && w.key.toString().contains('cell-p1-1-1')),
+        warnIfMissed: false);
+    await tester.pump();
+    for (var i = 0; i < 9; i++) {
+      // 비행 칩·쳐내지는 뒷면은 Overlay(내비게이터 위)에 그려진다 — MaterialApp째 캡처.
+      await expectLater(
+          find.byType(MaterialApp), matchesGoldenFile('goldens/anim_peek_f$i.png'));
+      await tester.pump(const Duration(milliseconds: 90));
+    }
+    await tester.pump(const Duration(seconds: 1));
   });
 
   /// 디버그 라벨이 붙은 칸/손패 GlobalKey로 위젯을 찾는다(`cell-p0-2-1` 등).
@@ -511,7 +533,10 @@ void main() {
                         size: cardW,
                         veiled: true,
                         veilPhase: 0.7),
-                    SealStamp(size: cardW),
+                    Align(
+                      alignment: Alignment(0.82, -0.74),
+                      child: ChipBadge(size: cardW * 0.4, ring: AppColors.mePrimary),
+                    ),
                   ]),
             ])
               Padding(

@@ -100,3 +100,21 @@ def soft(freq, dur, g, slide=0.0):
         out.append(math.sin(ph) * math.exp(-i / (SR * 0.25)))
     return gain(out, g)
 save('lose', mix(soft(311.1, 0.45, 0.7), delay(soft(233.1, 0.7, 0.8, slide=-0.06), 0.28)))
+
+# 7) 칩 "팅": 레일에서 튀어 오르는 순간 — 짧고 밝은 비배음 파셜(카지노 칩의 맑은 클릭).
+#    경쾌해야 하고 길면 안 된다: 전부 0.14초 안에 죽는다.
+n = int(SR * 0.16)
+click = gain(lowpass(noise(int(SR * 0.004)), 0.6), 0.5)
+save('chip_ping', mix(
+    click,
+    partial(2093, 0.045, 0.8, n),
+    partial(3136, 0.03, 0.45, n),
+    partial(4699, 0.02, 0.25, n),
+))
+
+# 8) 칩 "착": 날아온 칩이 뒷면을 쳐내는 순간 — 짧은 노이즈 탭 + 낮은 툭.
+#    타격감은 저역 툭(160Hz)이 만들고, 선명함은 6ms 노이즈가 만든다.
+tap = gain(lowpass(noise(int(SR * 0.006)), 0.35), 0.9)
+thump = gain([s * e for s, e in zip(sine(160, int(SR * 0.05)), env_exp(int(SR * 0.05), 0.012))], 0.8)
+snap = partial(900, 0.012, 0.35, int(SR * 0.04))
+save('chip_flick', mix(tap, thump, snap))

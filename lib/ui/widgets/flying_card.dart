@@ -105,6 +105,7 @@ Future<void> poofCard({
   required PlayingCard card,
   Duration duration = const Duration(milliseconds: 340),
   double driftX = 0.6,
+  bool faceDown = false, // 뒷면이 쳐내진다(열어보기 — 칩이 카드 뒷면을 걷어낸다).
 }) async {
   final controller = AnimationController(vsync: vsync, duration: duration);
   final anim = CurvedAnimation(parent: controller, curve: Curves.easeOutCubic);
@@ -139,7 +140,10 @@ Future<void> poofCard({
                     child: Material(
                       type: MaterialType.transparency,
                       child: FittedBox(
-                          fit: BoxFit.contain, child: CardFace(card: card, size: 120)),
+                          fit: BoxFit.contain,
+                          child: faceDown
+                              ? const CardBack(size: 120)
+                              : CardFace(card: card, size: 120)),
                     ),
                   ),
                 ),

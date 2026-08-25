@@ -12,6 +12,7 @@ import '../theme.dart';
 import 'card_back.dart';
 import 'card_face.dart';
 import 'table_decor.dart';
+import 'veil_chip.dart' show ChipBadge;
 import 'veil_shimmer.dart';
 
 /// 보드 칸의 표시 방식.
@@ -48,6 +49,7 @@ class BoardView extends StatelessWidget {
     this.lookOf,
     this.lineCardsOf,
     this.cellKeyFor,
+    this.chipOn,
     this.landscape = false,
   });
 
@@ -68,6 +70,10 @@ class BoardView extends StatelessWidget {
   /// 점수 알약에 넣을 카드 목록. 가림 룰은 **공개된 카드만** 넘겨서
   /// 숨긴 정보가 점수로 새지 않게 한다. 기본은 칸 전체.
   final List<PlayingCard> Function(PlayerId p, int line)? lineCardsOf;
+
+  /// 칸 위에 **앉아 있는 칩**의 주인 색. 숨긴 카드(내 봉인·상대 뒷면)와 비공개권으로
+  /// 열어본 카드에 붙는다 — "여기에 칩이 쓰였다"는 표시. null이면 없음.
+  final Color? Function(PlayerId owner, int row, int col)? chipOn;
   final GlobalKey Function(PlayerId owner, int row, int col)? cellKeyFor;
   final bool landscape;
 
@@ -130,6 +136,7 @@ class BoardView extends StatelessWidget {
       isNext: col == _nextCol(owner, row),
       highlighted: isHighlighted?.call(owner, row, col) ?? false,
       veilPhase: veilPhaseFor(row, col),
+      chip: chipOn?.call(owner, row, col),
       onTap: () => onCellTap(owner, row, col),
     );
   }
@@ -296,10 +303,14 @@ class _BoardSlot extends StatelessWidget {
     required this.onTap,
     this.look = CellLook.face,
     this.veilPhase = 0,
+    this.chip,
   });
 
   final PlacedCard? placed;
   final CellLook look;
+
+  /// 카드 위에 앉힐 칩의 주인 색(null이면 칩 없음).
+  final Color? chip;
   final double size;
   final double ratio;
   final bool mine;
@@ -363,22 +374,20 @@ class _BoardSlot extends StatelessWidget {
             ],
           ),
         CellLook.peek => PeekCardBack(card: placed!.card, size: size),
-        CellLook.sealed => Stack(
-            fit: StackFit.expand,
-            children: [
-              PeekCardBack(
-                  card: placed!.card, size: size, veiled: true, veilPhase: phase),
-              SealStamp(size: size),
-            ],
-          ),
+        // 봉인 = 카드가 어둠에 잠기고 그 위에 **칩이 앉는다**(아래 chip 오버레이).
+        CellLook.sealed => PeekCardBack(
+            card: placed!.card, size: size, veiled: true, veilPhase: phase),
       };
       // 표시 방식이 바뀔 때(뒷면→앞면 공개 등) 가로로 눌렸다 펴지는 플립.
       // 칸이 비어 있다 처음 채워질 때는 스위처가 새로 만들어져 애니메이션이 없다
       // (기존 게임의 배치 연출·골든에 영향을 주지 않는다).
       // peek↔sealed(봉인 지정/해제)는 카드가 뒤집히는 게 아니므로 플립 없이
       // 도장 자체의 등장 연출만 쓴다 — 키를 "앞면인가"로만 나눈 이유.
+      // 열어본 카드(칩이 앉은 앞면)는 플립하지 않는다 — 뒷면이 쳐내져 날아가는
+      // 오버레이가 이미 "드러남"을 말했다. 두 번 뒤집으면 촌스럽다.
+      final peeked = chip != null && look == CellLook.face;
       final card = AnimatedSwitcher(
-        duration: const Duration(milliseconds: 240),
+        duration: peeked ? Duration.zero : const Duration(milliseconds: 240),
         transitionBuilder: (child, anim) => AnimatedBuilder(
           animation: anim,
           builder: (context, _) => Transform(
@@ -401,11 +410,32 @@ class _BoardSlot extends StatelessWidget {
           ),
         ),
       );
+      // 칩은 카드 오른쪽 위 모서리에 걸쳐 앉는다. 봉인 지정 순간은 위에서 내려와
+      // 툭 안착(land), 그 외(지난 라운드 숨김·상대 뒷면·열어본 카드)는 그냥 놓여 있다.
+      final chipped = chip == null
+          ? card
+          : Stack(
+              fit: StackFit.expand,
+              clipBehavior: Clip.none,
+              children: [
+                card,
+                Align(
+                  alignment: const Alignment(0.82, -0.74),
+                  child: IgnorePointer(
+                    child: ChipBadge(
+                        key: ValueKey('chip-${look == CellLook.sealed}'),
+                        size: size * 0.4,
+                        ring: chip,
+                        land: look == CellLook.sealed),
+                  ),
+                ),
+              ],
+            );
       inner = highlighted
           ? Stack(
               fit: StackFit.expand,
               children: [
-                card,
+                chipped,
                 IgnorePointer(
                   child: DecoratedBox(
                     decoration: BoxDecoration(
@@ -419,7 +449,7 @@ class _BoardSlot extends StatelessWidget {
                 ),
               ],
             )
-          : card;
+          : chipped;
     }
     return GestureDetector(
       onTap: onTap,

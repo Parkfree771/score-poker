@@ -24,6 +24,12 @@ enum Sfx {
   sting('sting'),
   shield('shield'),
   token('token'),
+
+  /// "팅" — 칩이 레일에서 튀어 오르는 순간(열어보기 출발).
+  chipPing('chip_ping'),
+
+  /// "착" — 날아간 칩이 뒷면을 쳐내는 순간.
+  chipFlick('chip_flick'),
   win('win'),
   lose('lose');
 
