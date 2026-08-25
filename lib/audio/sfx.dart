@@ -23,13 +23,13 @@ enum Sfx {
   /// "두-둥" — 동시 공개·판정 세리머니의 예고 스팅.
   sting('sting'),
   shield('shield'),
-  token('token'),
+  token('token', variants: 3, jitter: true),
 
   /// "팅" — 칩이 레일에서 튀어 오르는 순간(열어보기 출발).
-  chipPing('chip_ping'),
+  chipPing('chip_ping', variants: 2, jitter: true),
 
   /// "착" — 날아간 칩이 뒷면을 쳐내는 순간.
-  chipFlick('chip_flick'),
+  chipFlick('chip_flick', variants: 2, jitter: true),
   win('win'),
   lose('lose');
 

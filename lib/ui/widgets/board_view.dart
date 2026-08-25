@@ -13,7 +13,6 @@ import 'card_back.dart';
 import 'card_face.dart';
 import 'table_decor.dart';
 import 'veil_chip.dart' show ChipBadge;
-import 'veil_shimmer.dart';
 
 /// 보드 칸의 표시 방식.
 ///
@@ -135,7 +134,6 @@ class BoardView extends StatelessWidget {
       mine: owner == viewer,
       isNext: col == _nextCol(owner, row),
       highlighted: isHighlighted?.call(owner, row, col) ?? false,
-      veilPhase: veilPhaseFor(row, col),
       chip: chipOn?.call(owner, row, col),
       onTap: () => onCellTap(owner, row, col),
     );
@@ -302,7 +300,6 @@ class _BoardSlot extends StatelessWidget {
     required this.highlighted,
     required this.onTap,
     this.look = CellLook.face,
-    this.veilPhase = 0,
     this.chip,
   });
 
@@ -316,9 +313,6 @@ class _BoardSlot extends StatelessWidget {
   final bool mine;
   final bool isNext;
   final bool highlighted;
-
-  /// 검은 일렁거림의 시작 위상(칸마다 어긋나게).
-  final double veilPhase;
 
   final VoidCallback onTap;
 
@@ -351,32 +345,16 @@ class _BoardSlot extends StatelessWidget {
         ],
       );
     } else {
-      final phase = veilPhase;
+      // 덮인 카드는 **그냥 뒷면**이다. 일렁이는 어둠 같은 장식은 없다 — "숨겼다"는
+      // 뒷면 + 그 위에 앉은 칩이 말한다. (열 수 있는 카드도 겉모습은 같다.)
       final content = switch (look) {
         CellLook.face => cachedCardFace(placed!.card, size),
-        CellLook.back => cachedCardBack(size),
-        // 덮어 둔 카드는 그늘에 잠겨 일렁인다 — 아이콘으로 말하지 않는다.
-        CellLook.backVeiled => Stack(
-            fit: StackFit.expand,
-            children: [
-              cachedCardBack(size),
-              VeilShimmer(radius: size * 0.16, phase: phase),
-            ],
-          ),
-        // 열 수 있는 카드에는 **아무것도 붙이지 않는다**. 어둠이 빨라지고 틈에서
-        // 불씨가 새는 것으로 "여기에 코인을 쓸 수 있다"를 말한다.
-        CellLook.backPeekable => Stack(
-            fit: StackFit.expand,
-            children: [
-              cachedCardBack(size),
-              VeilShimmer(
-                  radius: size * 0.16, phase: phase, mood: VeilMood.restless),
-            ],
-          ),
-        CellLook.peek => PeekCardBack(card: placed!.card, size: size),
-        // 봉인 = 카드가 어둠에 잠기고 그 위에 **칩이 앉는다**(아래 chip 오버레이).
-        CellLook.sealed => PeekCardBack(
-            card: placed!.card, size: size, veiled: true, veilPhase: phase),
+        CellLook.back ||
+        CellLook.backVeiled ||
+        CellLook.backPeekable =>
+          cachedCardBack(size),
+        // 내 카드는 모서리가 들려 내용이 보인다(홀카드 필). 봉인도 같다 — 칩만 얹힌다.
+        CellLook.peek || CellLook.sealed => PeekCardBack(card: placed!.card, size: size),
       };
       // 표시 방식이 바뀔 때(뒷면→앞면 공개 등) 가로로 눌렸다 펴지는 플립.
       // 칸이 비어 있다 처음 채워질 때는 스위처가 새로 만들어져 애니메이션이 없다

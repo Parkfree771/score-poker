@@ -24,8 +24,6 @@ import 'package:score_poker/ui/widgets/celebration.dart';
 import 'package:score_poker/ui/theme.dart';
 import 'package:score_poker/ui/widgets/board_view.dart';
 import 'package:score_poker/ui/widgets/card_back.dart';
-import 'package:score_poker/ui/widgets/veil_chip.dart';
-import 'package:score_poker/ui/widgets/veil_shimmer.dart';
 import 'package:score_poker/ui/widgets/card_face.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -496,70 +494,7 @@ void main() {
     });
   }
 
-  // 덮인 카드의 **검은 일렁거림** 확인용: 크게 띄운 카드 3장을 520ms 간격 8프레임으로
-  // 떠서 갤러리에서 돌려본다(상대 덮인 카드 / 열어볼 수 있는 카드 / 내 봉인 카드).
-  testWidgets('veil shimmer frames', (tester) async {
-    await tester.binding.setSurfaceSize(const Size(520, 260));
-    tester.view.physicalSize = const Size(520, 260);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    const cardW = 120.0;
-    await tester.pumpWidget(_app(Scaffold(
-      backgroundColor: AppColors.bgMid,
-      body: Center(
-        child: Row(
-          key: const Key('veil-strip'),
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // 상대가 덮어 둔 카드 / 지금 열어볼 수 있는 카드 / 내가 봉인한 카드
-            for (final build in <Widget Function()>[
-              () => const Stack(fit: StackFit.expand, children: [
-                    CardBack(size: cardW),
-                    VeilShimmer(radius: cardW * 0.16, phase: 0.0),
-                  ]),
-              () => const Stack(fit: StackFit.expand, children: [
-                    CardBack(size: cardW),
-                    // 열 수 있는 카드 — 배지 없이 어둠이 빨라지고 틈에서 불씨가 샌다.
-                    VeilShimmer(
-                        radius: cardW * 0.16,
-                        phase: 0.35,
-                        mood: VeilMood.restless),
-                  ]),
-              () => const Stack(fit: StackFit.expand, children: [
-                    PeekCardBack(
-                        card: PlayingCard(14, Suit.spades),
-                        size: cardW,
-                        veiled: true,
-                        veilPhase: 0.7),
-                    Align(
-                      alignment: Alignment(0.82, -0.74),
-                      child: ChipBadge(size: cardW * 0.4, ring: AppColors.mePrimary),
-                    ),
-                  ]),
-            ])
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                child: SizedBox(
-                  width: cardW,
-                  height: CardFace.heightFor(cardW),
-                  child: build(),
-                ),
-              ),
-          ],
-        ),
-      ),
-    )));
-    await tester.pump();
-    for (var i = 0; i < 8; i++) {
-      await expectLater(find.byKey(const Key('veil-strip')),
-          matchesGoldenFile('goldens/anim_veil_f$i.png'));
-      await tester.pump(const Duration(milliseconds: 520));
-    }
-  });
-
-  // 내 카드를 탭해 숨김 지정 → 봉인 도장 + 일렁거림(내 쪽은 숫자를 읽어야 하니 얕게).
+  // 봉인 지정: 내 카드 위에 칩이 앉는다.
   testWidgets('seal stamp on my card', (tester) async {
     await setScreen(tester, _portrait);
     await tester.pumpWidget(_app(GameScreen(initialGame: _demoState())));

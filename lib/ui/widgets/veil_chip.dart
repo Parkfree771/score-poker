@@ -8,12 +8,10 @@ import 'board_view.dart' show VeilCoin;
 
 /// 비공개권 = 포커 칩.
 ///
-/// 살아 있는 칩은 로티(`assets/lottie/chip.json`)로 림을 따라 글린트가 천천히 돌고,
-/// 누르면 **탁 뒤집힌다**(플립 구간 재생 + 툴팁으로 남은 개수·용법 안내).
+/// 살아 있는 칩은 로티(`assets/lottie/chip_spade.json` — 사용자 로티 폴더의
+/// wired-lineal 스페이드 칩을 **검정·크림·브라스** 팔레트로 다시 칠한 것)의 앞면으로
+/// 쉬고, 누르면 hover-pinch 구간(뒤집힘)이 재생된다(+ 툴팁으로 남은 개수·용법).
 /// 쓴 칩은 빈 소켓([VeilCoin]의 socket 분기 재사용)으로 남아 "얼마나 썼는지"가 보인다.
-///
-/// 로티 마커: `idle` 0~120f(루프), `flip` 120~150f(탭 반응). 파일은 외부에서 받은 것이
-/// 아니라 이 프로젝트에서 직접 생성한 자산(`tool/gen_chip_lottie.py`)이다.
 class VeilChip extends StatefulWidget {
   const VeilChip({
     super.key,
@@ -35,8 +33,7 @@ class VeilChip extends StatefulWidget {
   final String? label;
   final VoidCallback? onTap;
 
-  /// false면 글린트 루프를 돌리지 않는다(판이 끝난 뒤 — 결과 오버레이가 주인공이고,
-  /// 무한 애니메이션은 pumpAndSettle을 영원히 붙잡는다).
+  /// (호환용) 쉴 때 칩은 어차피 정지 프레임이라 지금은 효과가 없다.
   final bool animate;
 
   @override
@@ -44,7 +41,12 @@ class VeilChip extends StatefulWidget {
 }
 
 class VeilChipState extends State<VeilChip> with TickerProviderStateMixin {
-  static const _idleEnd = 120 / 150;
+  // chip_spade.json(0~390f): in-reveal 0~90 · hover-pinch 100~250 · loop-cycle 260~320.
+  // 쉴 때는 **정지한 앞면**(90f)이다 — loop-cycle은 옆으로 도는 스핀이라 28px에서는
+  // 얼룩으로 보인다. 탭하면 hover-pinch(뒤집힘)를 한 번 재생하고 앞면으로 돌아온다.
+  static const _total = 390.0;
+  static const _rest = 90 / _total;
+  static const _tapStart = 100 / _total, _tapEnd = 250 / _total;
   late final AnimationController _c = AnimationController(vsync: this);
 
   /// "팅" — 제자리에서 튀어 오르는 짧은 홉. 열어보기 직전 레일에서 울린다.
@@ -54,12 +56,8 @@ class VeilChipState extends State<VeilChip> with TickerProviderStateMixin {
 
   void _idle() {
     if (!mounted || !_loaded) return;
-    if (!widget.animate) {
-      _c.stop();
-      _c.value = 0;
-      return;
-    }
-    _c.repeat(min: 0, max: _idleEnd, period: _c.duration! * _idleEnd);
+    _c.stop();
+    _c.value = _rest;
   }
 
   @override
@@ -71,9 +69,9 @@ class VeilChipState extends State<VeilChip> with TickerProviderStateMixin {
   Future<void> _flip() async {
     if (!_loaded) return;
     _c.stop();
-    _c.value = _idleEnd;
-    await _c.animateTo(1,
-        duration: _c.duration! * (1 - _idleEnd), curve: Curves.easeOut);
+    _c.value = _tapStart;
+    await _c.animateTo(_tapEnd,
+        duration: _c.duration! * (_tapEnd - _tapStart), curve: Curves.linear);
     _idle();
   }
 
@@ -116,15 +114,19 @@ class VeilChipState extends State<VeilChip> with TickerProviderStateMixin {
       child: ClipOval(
         // 칩 로티는 초당 60번 다시 칠해진다 — 보드 레이어로 번지지 않게 격리.
         child: RepaintBoundary(
-          child: Lottie.asset(
-            'assets/lottie/chip.json',
-            controller: _c,
-            fit: BoxFit.cover,
-            onLoaded: (comp) {
-              _c.duration = comp.duration;
-              _loaded = true;
-              _idle();
-            },
+          // 아이콘 캔버스에 여백이 있어 1.3배로 키워 원을 채운다.
+          child: Transform.scale(
+            scale: 1.3,
+            child: Lottie.asset(
+              'assets/lottie/chip_spade.json',
+              controller: _c,
+              fit: BoxFit.contain,
+              onLoaded: (comp) {
+                _c.duration = comp.duration;
+                _loaded = true;
+                _idle();
+              },
+            ),
           ),
         ),
       ),
@@ -208,9 +210,9 @@ class ChipPainter extends CustomPainter {
   /// 비행 중 기울기(0~1) — 가로로 눌려 보이며 "굴러간다".
   final double tilt;
 
-  static const _gold = Color(0xFFD6B25C);
-  static const _goldDark = Color(0xFFA8843A);
-  static const _cream = Color(0xFFF4E7C2);
+  static const _black = Color(0xFF151417);
+  static const _brass = Color(0xFFD6B25C);
+  static const _cream = Color(0xFFF1E6C8);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -221,38 +223,48 @@ class ChipPainter extends CustomPainter {
     canvas.scale(1 - 0.35 * tilt, 1);
     // 그림자
     canvas.drawCircle(Offset(0, r * 0.06), r * 0.98,
-        Paint()..color = Colors.black.withValues(alpha: 0.32));
-    // 림
-    canvas.drawCircle(Offset.zero, r * 0.92, Paint()..color = _gold);
+        Paint()..color = Colors.black.withValues(alpha: 0.4));
+    // 검은 몸통 + 브라스 림
+    canvas.drawCircle(Offset.zero, r * 0.92, Paint()..color = _black);
     canvas.drawCircle(
         Offset.zero,
-        r * 0.92,
+        r * 0.9,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = r * 0.06
-          ..color = _goldDark);
-    // 노치 8개
-    final notch = Paint()..color = _cream;
-    for (var k = 0; k < 8; k++) {
+          ..strokeWidth = r * 0.07
+          ..color = _brass);
+    // 크림 노치 6개(카지노 칩의 에지 스팟)
+    final cream = Paint()..color = _cream;
+    for (var k = 0; k < 6; k++) {
       canvas.save();
-      canvas.rotate(k * math.pi / 4);
+      canvas.rotate(k * math.pi / 3);
       canvas.drawRRect(
         RRect.fromRectAndRadius(
-            Rect.fromCenter(center: Offset(0, -r * 0.8), width: r * 0.3, height: r * 0.2),
-            Radius.circular(r * 0.04)),
-        notch,
+            Rect.fromCenter(center: Offset(0, -r * 0.76), width: r * 0.3, height: r * 0.2),
+            Radius.circular(r * 0.05)),
+        cream,
       );
       canvas.restore();
     }
-    // 안쪽 원 + 링 + 점
-    canvas.drawCircle(Offset.zero, r * 0.59, Paint()..color = _gold);
-    final creamStroke = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = r * 0.05
-      ..color = _cream;
-    canvas.drawCircle(Offset.zero, r * 0.59, creamStroke);
-    canvas.drawCircle(Offset.zero, r * 0.33, creamStroke);
-    canvas.drawCircle(Offset.zero, r * 0.11, notch);
+    // 안쪽 링 + 스페이드
+    canvas.drawCircle(
+        Offset.zero,
+        r * 0.52,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = r * 0.05
+          ..color = _brass);
+    final s = r * 0.34;
+    final spade = Path()
+      ..moveTo(0, -s)
+      ..cubicTo(s * 0.55, -s * 0.35, s * 1.05, s * 0.05, s * 0.62, s * 0.42)
+      ..cubicTo(s * 0.35, s * 0.62, s * 0.12, s * 0.5, 0, s * 0.25)
+      ..cubicTo(-s * 0.12, s * 0.5, -s * 0.35, s * 0.62, -s * 0.62, s * 0.42)
+      ..cubicTo(-s * 1.05, s * 0.05, -s * 0.55, -s * 0.35, 0, -s)
+      ..close()
+      ..addRect(Rect.fromCenter(
+          center: Offset(0, s * 0.62), width: s * 0.22, height: s * 0.5));
+    canvas.drawPath(spade, cream);
     // 주인 링(바깥 테두리)
     canvas.drawCircle(
         Offset.zero,

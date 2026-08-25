@@ -95,10 +95,11 @@ class AiProfile {
   };
 }
 
-/// 가림 룰 AI — 사람 상대용으로 그럴듯하면 된다.
+/// 가림 룰 AI.
 ///
-/// 손패에서 **이번 라운드에 낼 카드**(남은 배치 수만큼)를 고른다: 매번 (카드 × 줄) 전체
-/// 조합에서 기풍 계수를 반영한 점수가 가장 높은 짝을 탐욕으로 뽑는다. 반환된 handIndex는
+/// 손패에서 **이번 라운드에 낼 카드**(남은 배치 수만큼)를 고른다: (카드 × 줄) 배정을
+/// 한꺼번에 탐색해 **판 전체 값어치**([_boardValue] — 상대의 공개 카드를 보고 "두 줄을
+/// 이길 확률")가 가장 높은 조합을 택한다. 기풍 계수는 그 위에 얹힌다. 반환된 handIndex는
 /// **현재 손패 기준**이므로, 실행할 때는 인덱스가 밀리지 않게 내림차순으로 배치해야 한다.
 class VeiledAi {
   VeiledAi(this.style, {int? seed}) : _rng = Random(seed);
@@ -109,74 +110,107 @@ class VeiledAi {
   AiProfile get profile => AiProfile.byStyle[style]!;
 
   List<({int handIndex, int row, int col})> plan(ScoreGame g, PlayerId p) {
-    final plan = <({int handIndex, int row, int col})>[];
-    // 시뮬레이션용 줄 구성(자기 카드는 숨김 여부와 무관하게 전부 안다).
     final rows = g.allRows(p);
+    // 상대는 **공개된 카드만** 안다 — 숨긴 카드는 "한 장 더 있다"로만 친다.
+    final opp = [
+      for (var r = 0; r < ScoreGame.rowsN; r++) g.publicRow(p.other, r),
+    ];
+    final oppHidden = [
+      for (var r = 0; r < ScoreGame.rowsN; r++)
+        g.allRows(p.other)[r].length - opp[r].length,
+    ];
     final free = [
       for (var r = 0; r < ScoreGame.rowsN; r++) ScoreGame.colsN - rows[r].length,
     ];
-    // 버릴 줄: 지금 가장 약한 줄. 기풍에 따라 여기 놓는 것을 꺼린다.
-    final sacrifice = _weakestRow(rows);
-    final hand = List.of(g.hands[p]!);
+    final hand = g.hands[p]!;
+    final n = min(g.leftToPlace(p), hand.length);
+    if (n == 0) return const [];
+
+    // (카드, 줄) 배정 n개를 **한꺼번에** 탐색한다 — 손패의 페어·같은 무늬가 한 줄에
+    // 모이려면 한 장씩 탐욕으로 고르면 안 된다. 6장·3배치면 ~3천 가지, 충분히 싸다.
+    var bestValue = -1e18;
+    List<(int, int)> best = const [];
+    final assign = <(int, int)>[];
     final used = <int>{};
-    final n = g.leftToPlace(p);
-    for (var k = 0; k < n; k++) {
-      var bestI = -1, bestRow = -1;
-      var bestScore = -1e18;
+
+    void search(int k) {
+      if (k == n) {
+        var v = _boardValue(rows, opp, oppHidden, free);
+        v += profile.noise * _rng.nextDouble() * 0.6;
+        if (v > bestValue) {
+          bestValue = v;
+          best = List.of(assign);
+        }
+        return;
+      }
       for (var i = 0; i < hand.length; i++) {
         if (used.contains(i)) continue;
+        // 카드 순서 중복만 잘라낸다: 인덱스 오름차순으로만 고른다.
+        if (assign.isNotEmpty && i < assign.last.$1) continue;
         for (var r = 0; r < ScoreGame.rowsN; r++) {
           if (free[r] <= 0) continue;
-          final s = _placementScore(rows[r], hand[i], free[r], r == sacrifice);
-          if (s > bestScore) {
-            bestScore = s;
-            bestI = i;
-            bestRow = r;
-          }
+          used.add(i);
+          assign.add((i, r));
+          rows[r].add(hand[i]);
+          free[r]--;
+          search(k + 1);
+          free[r]++;
+          rows[r].removeLast();
+          assign.removeLast();
+          used.remove(i);
         }
       }
-      if (bestI < 0) break; // 빈 칸 없음(정상 흐름에선 없다)
-      // 실제 칸: 그 줄의 첫 빈 칸(왼쪽부터 — 기존 게임과 같은 방향).
+    }
+
+    search(0);
+
+    final plan = <({int handIndex, int row, int col})>[];
+    for (final (i, r) in best) {
       var col = 0;
-      while (g.fields[p]![bestRow][col] != null ||
-          plan.any((m) => m.row == bestRow && m.col == col)) {
+      while (g.fields[p]![r][col] != null ||
+          plan.any((m) => m.row == r && m.col == col)) {
         col++;
       }
-      plan.add((handIndex: bestI, row: bestRow, col: col));
-      used.add(bestI);
-      rows[bestRow].add(hand[bestI]);
-      free[bestRow]--;
+      plan.add((handIndex: i, row: r, col: col));
     }
     return plan;
   }
 
-  /// 한 장을 한 줄에 놓았을 때의 값어치.
-  /// 족보 등급 상승(×100) + 점수 상승이 뼈대고, 거기에 기풍이 얹힌다.
-  double _placementScore(
-      List<PlayingCard> row, PlayingCard card, int free, bool isSacrifice) {
-    final before = evaluateHand(row);
-    final after = evaluateHand([...row, card]);
-    final gain = (after.category.index - before.category.index) * 100 +
-        (after.score - before.score);
-    var s = gain.toDouble();
-    s += profile.balance * free * 6; // 고르게 채우기
-    if (isSacrifice) s -= profile.sacrificeWeakRow * 120; // 약한 줄은 버린다
-    s += profile.noise * _rng.nextDouble() * 90;
-    return s;
+  /// 판 전체의 값어치 — "세 줄 중 두 줄을 이길 확률"에 가깝게.
+  ///
+  /// 줄마다 내 세기 − 상대 세기(공개분 + 숨긴 장수만큼의 잠재력)를 승률로 바꾼 뒤,
+  /// 상위 두 줄을 크게, 세 번째 줄은 기풍(sacrificeWeakRow)만큼 작게 센다.
+  /// 이미 굳은 줄(확실히 이김/짐)에 카드를 더 부어도 값이 오르지 않는다 —
+  /// 시그모이드라 자연히 접전인 줄로 카드가 간다.
+  double _boardValue(List<List<PlayingCard>> mine, List<List<PlayingCard>> opp,
+      List<int> oppHidden, List<int> free) {
+    final ps = <double>[];
+    var evenness = 0.0;
+    for (var r = 0; r < mine.length; r++) {
+      final my = _strength(mine[r]) + free[r] * 14; // 빈 칸 = 아직 오를 여지
+      final theirs = _strength(opp[r]) +
+          oppHidden[r] * 22 + // 숨긴 카드는 보통 값어치가 있는 카드다
+          (ScoreGame.colsN - opp[r].length - oppHidden[r]) * 14;
+      final margin = my - theirs;
+      ps.add(1 / (1 + exp(-margin / 55)));
+      evenness += free[r] == 0 ? 0 : 1;
+    }
+    ps.sort((a, b) => b.compareTo(a));
+    final weakWeight = 0.55 - 0.45 * profile.sacrificeWeakRow;
+    var v = ps[0] + ps[1] + weakWeight * ps[2];
+    // 두 줄이 모두 반반이면 몰아주기가 낫다: 둘 다 이길 확률(곱)도 조금 센다.
+    v += 0.5 * ps[0] * ps[1];
+    v += profile.balance * 0.04 * evenness;
+    return v;
   }
 
-  int _weakestRow(List<List<PlayingCard>> rows) {
-    var weakest = 0;
-    var worst = evaluateHand(rows[0]);
-    for (var r = 1; r < rows.length; r++) {
-      final h = evaluateHand(rows[r]);
-      if (h.compareTo(worst) < 0) {
-        worst = h;
-        weakest = r;
-      }
-    }
-    return weakest;
+  /// 줄의 세기: 등급 ×100 + 점수.
+  double _strength(List<PlayingCard> cards) {
+    if (cards.isEmpty) return 0;
+    final h = evaluateHand(cards);
+    return h.category.index * 100.0 + h.score;
   }
+
 
   /// 공개 직전의 숨기기 선택. 이번 라운드에 놓은 카드 중 한 장까지만 숨긴다
   /// (숨길수록 상대의 열어보기 표적이 늘어난다).

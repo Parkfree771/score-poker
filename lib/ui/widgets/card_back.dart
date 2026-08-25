@@ -5,7 +5,6 @@ import '../../domain/card.dart';
 import '../theme.dart';
 import 'card_face.dart';
 import 'suit_glyphs.dart';
-import 'veil_shimmer.dart';
 
 /// 뒤집힌 카드 한 장(상대 손패용). [CardFace]와 동일한 프레임/비율.
 ///
@@ -60,21 +59,15 @@ class CardBack extends StatelessWidget {
 /// 들린 면은 **카드 폭의 0.72**까지 넓혔다. 그 전(0.52)에는 "10♦"처럼 두 글자짜리
 /// 랭크가 삼각형 안에서 잘려 나갔다 — 내가 아는 카드인데 못 읽으면 표현의 의미가 없다.
 ///
-/// [veiled]면 뒷면과 들린 면 **사이**에 검은 일렁거림([VeilShimmer])이 깔린다.
-/// 순서가 중요하다: 그늘은 뒷면 위에, 숫자는 그늘 위에.
 class PeekCardBack extends StatelessWidget {
   const PeekCardBack({
     super.key,
     required this.card,
     required this.size,
-    this.veiled = false,
-    this.veilPhase = 0,
   });
 
   final PlayingCard card;
   final double size;
-  final bool veiled;
-  final double veilPhase;
 
   @override
   Widget build(BuildContext context) {
@@ -88,12 +81,6 @@ class PeekCardBack extends StatelessWidget {
       child: Stack(
         children: [
           Positioned.fill(child: cachedCardBack(w)),
-          if (veiled)
-            Positioned.fill(
-              // 내 카드는 숫자를 읽어야 하니 상대 카드보다 그늘을 얕게 깐다.
-              child: VeilShimmer(
-                  radius: w * 0.16, phase: veilPhase, intensity: 0.78),
-            ),
           // 오른쪽 아래 모서리가 들려 속(아이보리)이 드러난다.
           Positioned(
             right: w * 0.045,

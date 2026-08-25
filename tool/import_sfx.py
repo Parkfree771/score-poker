@@ -97,6 +97,18 @@ def main(src):
     # 공격 명중: 실사 클랙 + 저역 펀치 레이어 2종 (짧고 퍼커시브한 "딱!")
     save('attack_hit_1', layered_hit(load_mono(f'{src}/chips-collide-1.ogg')))
     save('attack_hit_2', layered_hit(load_mono(f'{src}/chips-collide-3.ogg')))
+    # 비공개권 칩 — 전부 실사. 합성 핑/탭은 8비트처럼 들려 폐기했다.
+    #  token(봉인 지정): 칩 한 개를 테이블에 놓는 소리 3종
+    for i in (1, 2, 3):
+        save(f'token_{i}', trim(load_mono(f'{src}/chip-lay-{i}.ogg'), tail_sec=0.05))
+    #  chip_ping(레일에서 튀어 오름): 칩을 손에서 굴리는 가벼운 소리 — 짧게 자른다
+    for out_i, src_i in enumerate((2, 4), start=1):
+        x = trim(load_mono(f'{src}/chips-handle-{src_i}.ogg'), tail_sec=0.03)
+        save(f'chip_ping_{out_i}', x[: int(SR * 0.16)])
+    #  chip_flick(뒷면을 쳐냄): 칩끼리 부딪히는 클랙 2종 — 잔향은 짧게
+    for out_i, src_i in enumerate((2, 4), start=1):
+        x = trim(load_mono(f'{src}/chips-collide-{src_i}.ogg'), tail_sec=0.03)
+        save(f'chip_flick_{out_i}', x[: int(SR * 0.2)])
 
 
 if __name__ == '__main__':

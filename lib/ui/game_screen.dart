@@ -958,7 +958,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           for (var i = 0; i < 3; i++)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 1.5),
-              child: _chip(i, filled, ring, size: 24),
+              child: _chip(i, filled, ring, size: 26),
             ),
         ],
       );
@@ -1127,7 +1127,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           for (var i = 0; i < 3; i++)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 2),
-              child: _chip(i, filled, ring, size: 28),
+              child: _chip(i, filled, ring, size: 30),
             ),
         ],
       );
