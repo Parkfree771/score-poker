@@ -8,6 +8,7 @@ import 'package:score_poker/domain/game.dart';
 import 'package:score_poker/domain/records.dart';
 import 'package:score_poker/domain/scoring.dart';
 import 'package:score_poker/l10n/app_localizations.dart';
+import 'package:score_poker/monetization/monetization.dart';
 import 'package:score_poker/l10n/app_localizations_en.dart';
 import 'package:score_poker/l10n/app_localizations_ko.dart';
 import 'package:score_poker/ui/game_screen.dart';
@@ -72,6 +73,14 @@ Widget _app(Widget child, {String locale = 'ko'}) => MaterialApp(
       supportedLocales: AppLocalizations.supportedLocales,
       home: child,
     );
+
+/// 상점·대전 상대 선택은 지갑을 본다 — 스텁 결제 + 빈 SharedPreferences(환영 부스트 3판).
+Future<Widget> _appWithMoney(WidgetTester tester, Widget child, {String locale = 'ko'}) async {
+  SharedPreferences.setMockInitialValues({});
+  final m = Monetization(purchases: StubPurchaseService(), wallet: TokenWallet());
+  await tester.runAsync(m.startAsync);
+  return MonetizationScope(monetization: m, child: _app(child, locale: locale));
+}
 
 /// 설정 화면은 AppSettingsScope를 요구한다(실제 앱과 같은 순서로 감싼다).
 Widget _appWithSettings(Widget child, {String locale = 'ko', Locale? selected}) {
@@ -308,14 +317,14 @@ void main() {
 
   testWidgets('persona select portrait', (tester) async {
     await setScreen(tester, _portrait);
-    await tester.pumpWidget(_app(const PersonaSelectScreen()));
+    await tester.pumpWidget(await _appWithMoney(tester, const PersonaSelectScreen()));
     await pumpLottie(tester);
     await expectLater(find.byType(PersonaSelectScreen), matchesGoldenFile('goldens/shot_17_persona_portrait.png'));
   });
 
   testWidgets('persona select landscape', (tester) async {
     await setScreen(tester, _landscape);
-    await tester.pumpWidget(_app(const PersonaSelectScreen()));
+    await tester.pumpWidget(await _appWithMoney(tester, const PersonaSelectScreen()));
     await pumpLottie(tester);
     await expectLater(find.byType(PersonaSelectScreen), matchesGoldenFile('goldens/shot_18_persona_landscape.png'));
   });
@@ -549,7 +558,7 @@ void main() {
 
   testWidgets('shop portrait', (tester) async {
     await setScreen(tester, _portrait);
-    await tester.pumpWidget(_app(const ShopScreen()));
+    await tester.pumpWidget(await _appWithMoney(tester, const ShopScreen()));
     await tester.pumpAndSettle();
     await expectLater(
         find.byType(ShopScreen), matchesGoldenFile('goldens/shot_26_shop_portrait.png'));
@@ -557,7 +566,7 @@ void main() {
 
   testWidgets('shop landscape', (tester) async {
     await setScreen(tester, _landscape);
-    await tester.pumpWidget(_app(const ShopScreen()));
+    await tester.pumpWidget(await _appWithMoney(tester, const ShopScreen()));
     await tester.pumpAndSettle();
     await expectLater(
         find.byType(ShopScreen), matchesGoldenFile('goldens/shot_27_shop_landscape.png'));
@@ -595,7 +604,7 @@ void main() {
 
   testWidgets('shop english', (tester) async {
     await setScreen(tester, _portrait);
-    await tester.pumpWidget(_app(const ShopScreen(), locale: 'en'));
+    await tester.pumpWidget(await _appWithMoney(tester, const ShopScreen(), locale: 'en'));
     await tester.pumpAndSettle();
     await expectLater(
         find.byType(ShopScreen), matchesGoldenFile('goldens/shot_33_shop_en.png'));

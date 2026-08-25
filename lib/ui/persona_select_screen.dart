@@ -1,15 +1,26 @@
 import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
+import '../monetization/monetization.dart';
 import 'game_screen.dart';
+import 'shop_screen.dart';
+import 'widgets/veil_chip.dart';
 import 'personas.dart';
 import 'theme.dart';
 
 /// AI 대전 상대(페르소나) 선택 화면.
 /// 캐릭터 카드: 컬러 글로우 배지(로티 반복 재생) + 태그라인 칩 + 기풍 스탯.
 /// 세로 = 카드 3장 세로 스택, 가로 = 3열 + 하단 감정 표현 스트립.
-class PersonaSelectScreen extends StatelessWidget {
+class PersonaSelectScreen extends StatefulWidget {
   const PersonaSelectScreen({super.key});
+
+  @override
+  State<PersonaSelectScreen> createState() => _PersonaSelectScreenState();
+}
+
+class _PersonaSelectScreenState extends State<PersonaSelectScreen> {
+  /// 부스트를 켜고 시작할지. 지갑에 부스트가 있을 때만 켤 수 있다.
+  bool _boost = true;
 
   @override
   Widget build(BuildContext context) {
@@ -47,6 +58,8 @@ class PersonaSelectScreen extends StatelessWidget {
           const SizedBox(height: 16),
         ],
         const SizedBox(height: 6),
+        _BoostCard(l10n: l10n, enabled: _boost, onChanged: (v) => setState(() => _boost = v)),
+        const SizedBox(height: 14),
         _EmoteStrip(l10n: l10n),
       ],
     );
@@ -73,14 +86,21 @@ class PersonaSelectScreen extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 14),
+        _BoostCard(l10n: l10n, enabled: _boost, onChanged: (v) => setState(() => _boost = v)),
+        const SizedBox(height: 14),
         _EmoteStrip(l10n: l10n),
       ],
     );
   }
 
-  void _start(BuildContext context, Persona persona) {
+  Future<void> _start(BuildContext context, Persona persona) async {
+    final wallet = MonetizationScope.maybeOf(context)?.wallet;
+    // 부스트는 **판을 시작하는 순간** 하나 소모된다(도메인이 판당 1개를 강제한다).
+    final boosted = _boost && wallet != null && await wallet.spend(TokenKind.boost);
+    if (!context.mounted) return;
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute<void>(builder: (_) => GameScreen(persona: persona)),
+      MaterialPageRoute<void>(
+          builder: (_) => GameScreen(persona: persona, boosted: boosted)),
     );
   }
 }
@@ -303,6 +323,74 @@ class _EmoteStrip extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+
+/// 부스트 사용 여부 — 지갑에 남은 판 수를 보여주고 켜고 끈다. 없으면 상점으로 보낸다.
+/// `MonetizationScope`가 없는 환경(단독 위젯 테스트)에서는 그리지 않는다.
+class _BoostCard extends StatelessWidget {
+  const _BoostCard({required this.l10n, required this.enabled, required this.onChanged});
+  final AppLocalizations l10n;
+  final bool enabled;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final wallet = MonetizationScope.maybeOf(context)?.wallet;
+    if (wallet == null) return const SizedBox.shrink();
+    return ListenableBuilder(
+      listenable: wallet,
+      builder: (context, _) {
+        final n = wallet.balanceOf(TokenKind.boost);
+        final has = n > 0;
+        return Container(
+          padding: const EdgeInsets.fromLTRB(16, 12, 10, 12),
+          decoration: BoxDecoration(
+            color: AppColors.panel,
+            borderRadius: BorderRadius.circular(AppShapes.radius),
+            border: Border.all(
+                color: has && enabled ? AppColors.gold.withValues(alpha: 0.7) : AppColors.stroke,
+                width: 1.2),
+          ),
+          child: Row(
+            children: [
+              ChipBadge(size: 30, ring: has ? AppColors.goldSoft : AppColors.stroke),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(l10n.boostTitle,
+                        style: const TextStyle(
+                            color: AppColors.textMain, fontWeight: FontWeight.w900, fontSize: 14)),
+                    const SizedBox(height: 2),
+                    Text(has ? l10n.boostLeft(n) : l10n.boostNone,
+                        style: const TextStyle(
+                            color: AppColors.textMuted, fontSize: 12, fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+              if (has)
+                Switch(
+                  value: enabled,
+                  activeThumbColor: AppColors.gold,
+                  onChanged: onChanged,
+                )
+              else
+                TextButton(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(builder: (_) => const ShopScreen()),
+                  ),
+                  child: Text(l10n.shopTitle,
+                      style: const TextStyle(
+                          color: AppColors.goldSoft, fontWeight: FontWeight.w800)),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

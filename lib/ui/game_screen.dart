@@ -32,9 +32,13 @@ import 'widgets/veil_chip.dart';
 /// → 타이머 종료 시 **동시 공개**(둘 다 일찍 끝내면 타이머가 5초로 줄어 마지막 수정 창만
 /// 남는다) → 다음 라운드 자동 진행 → 5라운드 후 최후 공개·정산.
 class GameScreen extends StatefulWidget {
-  const GameScreen({super.key, this.seed, this.persona, this.initialGame});
+  const GameScreen(
+      {super.key, this.seed, this.persona, this.initialGame, this.boosted = false});
 
   final int? seed;
+
+  /// 부스트 판(상점): 내 비공개권 칩 +1, 손패 스왑 1회. 판당 1개 — 도메인이 강제한다.
+  final bool boosted;
 
   /// 대전 상대 캐릭터. null이면 이름/색만 기본값이고 대사가 없다(테스트·스크린샷용).
   final Persona? persona;
@@ -76,6 +80,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   /// 열어보기 연출 중(칩 비행) — 중복 탭 방지.
   bool _peeking = false;
+
+  /// 스왑 연출 중(손패가 덱으로 돌아갔다 새로 온다) — 그동안 손패 탭 금지.
+  bool _swapping = false;
 
   final Map<(PlayerId, int), GlobalKey<VeilChipState>> _chipKeys = {};
   GlobalKey<VeilChipState> _chipKey(PlayerId p, int i) =>
@@ -126,7 +133,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    g = widget.initialGame ?? ScoreGame.deal(seed: widget.seed);
+    g = widget.initialGame ??
+        ScoreGame.deal(seed: widget.seed, boostFor: widget.boosted ? me : null);
     if (_frozen) {
       // 주입된 상태를 그대로 보여준다 — 진행은 하지 않는다.
       _dealtMine = g.hands[me]!.length;
@@ -166,7 +174,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _seq++;
     _ticker?.cancel();
     setState(() {
-      g = ScoreGame.deal(seed: widget.seed);
+      g = ScoreGame.deal(seed: widget.seed, boostFor: widget.boosted ? me : null);
       _phase = _Phase.dealing;
       selected = null;
       _flyingHandIndex = null;
@@ -290,7 +298,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   /// 덱에서 카드가 서로에게 날아가는 딜링 연출.
   /// 소리는 **카드가 안착하는 순간마다** "착" — 받는 타이밍과 리듬이 맞아야 한다.
-  Future<void> _dealAnimation(int seq) async {
+  Future<void> _dealAnimation(int seq, {bool oppToo = true}) async {
     final total = g.hands[me]!.length;
     if (_dealtMine >= total) return;
     // 상대/나 번갈아 한 장씩. 손패 슬롯은 투명하게 이미 자리를 잡고 있어서
@@ -299,16 +307,18 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     // **소리는 비행이 끝나는 프레임에 낸다**(flyCard의 Future가 안착 프레임에
     // 완료된다). 카드가 손에 닿는 순간과 "착"이 어긋나면 딜링 전체가 싸구려로 들린다.
     for (var i = _dealtMine; i < total; i++) {
-      unawaited(
-          _fly(_deckKey, _oppHandKey, g.hands[ai]![i], faceDown: true, ms: 240)
-              .then((_) {
+      if (oppToo && i < g.hands[ai]!.length) {
+        unawaited(
+            _fly(_deckKey, _oppHandKey, g.hands[ai]![i], faceDown: true, ms: 240)
+                .then((_) {
+          if (!mounted || seq != _seq) return;
+          // 상대에게 가는 카드는 **무음**. 내 카드와 100ms 차로 붙어 있어서
+          // 소리를 같이 내면 두 발이 겹쳐 뭉개진다 — 딜링의 박자는 내 손이 잡는다.
+          setState(() => _dealtOpp = i + 1);
+        }));
+        await Future<void>.delayed(const Duration(milliseconds: 100));
         if (!mounted || seq != _seq) return;
-        // 상대에게 가는 카드는 **무음**. 내 카드와 100ms 차로 붙어 있어서
-        // 소리를 같이 내면 두 발이 겹쳐 뭉개진다 — 딜링의 박자는 내 손이 잡는다.
-        setState(() => _dealtOpp = i + 1);
-      }));
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-      if (!mounted || seq != _seq) return;
+      }
       unawaited(_fly(_deckKey, _handKey(i), g.hands[me]![i], ms: 240).then((_) {
         if (!mounted || seq != _seq) return;
         setState(() => _dealtMine = i + 1);
@@ -323,9 +333,77 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     if (mounted && seq == _seq) {
       setState(() {
         _dealtMine = total;
-        _dealtOpp = total;
+        if (oppToo) _dealtOpp = total;
       });
     }
+  }
+
+  /// **손패 스왑**(부스트): 이번 라운드에 받은 카드가 덱으로 돌아가고 새 카드가 온다.
+  /// 받은 카드를 한 장이라도 놓았으면 못 쓴다(도메인 `canSwap`). 타이머는 계속 간다.
+  Future<void> _swapHand() async {
+    if (_phase != _Phase.placing || _swapping || !g.canSwap(me)) return;
+    final seq = _seq;
+    final n = g.drawnThisRound(me).length;
+    final hand = g.hands[me]!;
+    setState(() {
+      _swapping = true;
+      selected = null;
+    });
+    _haptic(Haptic.select);
+    // 받은 카드(손패 끝 n장)가 덱으로 날아 돌아간다.
+    for (var i = hand.length - n; i < hand.length; i++) {
+      unawaited(_fly(_handKey(i), _deckKey, hand[i], faceDown: true, ms: 220));
+      _playSfx(Sfx.cardSlide);
+      await Future<void>.delayed(const Duration(milliseconds: 70));
+      if (!mounted || seq != _seq) return;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    if (!mounted || seq != _seq) return;
+    setState(() {
+      g.swap(me);
+      _dealtMine = g.hands[me]!.length - n;
+    });
+    await _dealAnimation(seq, oppToo: false);
+    if (!mounted || seq != _seq) return;
+    setState(() => _swapping = false);
+  }
+
+  /// 스왑 버튼 — 부스트 판에서, 아직 받은 카드를 놓기 전까지만 보인다.
+  Widget _swapButton(AppLocalizations l10n) {
+    final visible = g.isBoosted(me) && g.canSwap(me) && _phase == _Phase.placing && !_swapping;
+    return AnimatedOpacity(
+      opacity: visible ? 1 : 0,
+      duration: const Duration(milliseconds: 180),
+      child: IgnorePointer(
+        ignoring: !visible,
+        child: Tooltip(
+          message: l10n.swapTip,
+          child: Material(
+            color: AppColors.surface,
+            shape: const StadiumBorder(side: BorderSide(color: AppColors.gold, width: 1.2)),
+            child: InkWell(
+              customBorder: const StadiumBorder(),
+              onTap: _swapHand,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.swap_horiz_rounded, size: 16, color: AppColors.goldSoft),
+                    const SizedBox(width: 4),
+                    Text(l10n.swapButton,
+                        style: const TextStyle(
+                            color: AppColors.goldSoft,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 12)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   /// AI는 라운드 시작에 3장을 계획하고 타이머 중간중간 실제로 놓는다 —
@@ -627,7 +705,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   void _tapHand(int i) {
-    if (_phase != _Phase.placing || g.leftToPlace(me) <= 0) return;
+    if (_phase != _Phase.placing || _swapping || g.leftToPlace(me) <= 0) return;
     _haptic(Haptic.select);
     setState(() => selected = selected == i ? null : i);
   }
@@ -955,7 +1033,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   Widget _coinsRow(int filled, {required Color ring}) => Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          for (var i = 0; i < 3; i++)
+          for (var i = 0; i < g.veilsMax(ring == AppColors.mePrimary ? me : ai); i++)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 1.5),
               child: _chip(i, filled, ring, size: 26),
@@ -1124,7 +1202,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   Widget _coinsColumn(int filled, {required Color ring}) => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          for (var i = 0; i < 3; i++)
+          for (var i = 0; i < g.veilsMax(ring == AppColors.mePrimary ? me : ai); i++)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 2),
               child: _chip(i, filled, ring, size: 30),
@@ -1195,6 +1273,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                       active: _phase == _Phase.placing && !g.isFinished),
                   const SizedBox(height: 5),
                   _WinsPill(count: wins.mine, color: AppColors.mePrimary),
+                  if (g.isBoosted(me)) ...[
+                    const SizedBox(height: 6),
+                    _swapButton(l10n),
+                  ],
                 ],
               ),
               Expanded(child: _handBar(height: 104)),
@@ -1228,6 +1310,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                     active: _phase == _Phase.placing && !g.isFinished),
                 const SizedBox(height: 6),
                 _WinsPill(count: wins.mine, color: AppColors.mePrimary),
+                if (g.isBoosted(me)) ...[
+                  const SizedBox(height: 6),
+                  _swapButton(l10n),
+                ],
               ],
             ),
           ),
@@ -1275,7 +1361,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     for (var i = 0; i < hand.length; i++) {
       _handKey(i);
     }
-    final dealing = _phase == _Phase.dealing;
+    final dealing = _phase == _Phase.dealing || _swapping;
     final dim = !dealing && (_phase != _Phase.placing || g.leftToPlace(me) <= 0);
     return SizedBox(
       height: height,

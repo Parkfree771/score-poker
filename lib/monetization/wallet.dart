@@ -10,14 +10,13 @@ import 'wallet_store.dart';
 /// 출시 후에도 계속 조정하게 된다 — 코드 여기저기 흩어져 있으면 못 만진다.
 ///
 /// 기본값의 근거:
-/// - 환영 지급 3세트: **써 보지 않은 아이템은 사지 않는다.** 첫 판부터 효과를 경험시킨다.
-/// - 데일리 1세트: 하루 한 판을 부스트할 수 있다. 하루 1~2판 하는 라이트 유저는 사실상
-///   전부 무료로 덮이고(어차피 결제하지 않을 층이다), 하루 5판 이상 하는 층에게만
-///   "부족하다"는 감각이 생긴다. 이 층이 결제 모수다.
+/// - 환영 지급 3판: **써 보지 않은 아이템은 사지 않는다.** 첫 판부터 효과를 경험시킨다.
+/// - 데일리 없음: 10판이 ₩1,000(한 판 100원)이라 무료 데일리를 주면 살 이유가 사라진다.
+///   (정책 자체는 남겨 둔다 — 이벤트로 켤 수 있다.)
 class TokenGrantPolicy {
   const TokenGrantPolicy({
-    this.welcome = const {TokenKind.shield: 3, TokenKind.attack: 3},
-    this.daily = const {TokenKind.shield: 1, TokenKind.attack: 1},
+    this.welcome = const {TokenKind.boost: 3},
+    this.daily = const {},
   });
 
   /// 첫 실행 1회 지급.

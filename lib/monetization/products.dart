@@ -1,17 +1,17 @@
 /// 판매 상품 정의.
 ///
-/// **2026-08-21 현재 이 상품들은 진열되지 않는다.** 가림 룰(v3)로 바뀌면서 토큰을 쓰던
-/// 규칙이 사라졌고, 상점 화면은 "준비 중"만 보여준다. 정의를 남겨 두는 이유는 결제
-/// 배관(구매 복원·지급·지갑)이 이 형태 위에서 검증돼 있기 때문이다 — 새 규칙에 맞는
-/// 상품이 정해지면 여기만 갈아 끼우면 된다.
-///
-/// 파는 것은 **인게임 토큰 두 종류뿐**이다(광고는 팔지 않는다 — 애초에 광고가 없다).
+/// 파는 것은 **부스트 팩 하나**다(광고는 팔지 않는다 — 애초에 광고가 없다).
+/// 부스트 1개 = 한 판을 부스트해서 시작: 비공개권 칩 +1(3→4), 손패 스왑 1회.
 ///
 /// **왜 이게 pay-to-win이 아닌가**
-/// 토큰은 한 판에 **각 종류 1개까지만** 쓸 수 있다(`GameRules`). 100개를 사도 한 판에서
-/// 얻는 이득은 1개 쓴 사람과 똑같다. 즉 돈은 "이득의 크기"가 아니라 "이득을 쓸 수 있는
-/// 판의 수"만 늘린다. 게다가 쉴드는 조커로 깨지고(덱에 2장), 공격 표식은 같은 숫자 규칙과
-/// 빈 칸 조건을 그대로 받는다 — 규칙 안에서 이미 카운터가 존재한다.
+/// 부스트는 한 판에 **1개까지만** 쓸 수 있다(`ScoreGame.deal(boostFor:)` — 도메인이 강제).
+/// 100개를 사도 한 판에서 얻는 이득은 1개 쓴 사람과 똑같다. 돈은 "이득의 크기"가 아니라
+/// "이득을 쓸 수 있는 판의 수"만 늘린다. 지금 랭킹은 이 기기 안의 내 기록뿐이라 남에게
+/// 피해가 없고, 온라인 대전을 붙일 때 부스트 판의 RP 반영 여부를 다시 정한다.
+///
+/// **가격(2026-08-25 사용자 결정)**: ₩1,000 = 10판. 애플은 정해진 가격 포인트만 쓸 수 있어
+/// ₩990 같은 값이 없으므로 양쪽 스토어 모두 ₩1,000으로 통일했다. 조정은 가격이 아니라
+/// **판 수**로 한다(가격 티어·심사 문제가 없다).
 library;
 
 import 'tokens.dart';
@@ -58,29 +58,15 @@ class Product {
 class Products {
   Products._();
 
-  /// 쉴드 토큰 10개.
-  static const shield10 = Product(
-    id: 'token_shield_10',
-    grants: {TokenKind.shield: 10},
-    referencePriceKrw: 3300,
+  /// 부스트 10판. ID는 종류 접두어(`boost_`)를 붙여 나중에 다른 팩을 옆에 두기 쉽게.
+  static const boostPack10 = Product(
+    id: 'boost_pack_10',
+    grants: {TokenKind.boost: 10},
+    referencePriceKrw: 1000,
   );
 
-  /// 공격 토큰 10개. **쉴드와 같은 가격** — 둘의 강도가 대칭이라 가격도 대칭이다.
-  static const attack10 = Product(
-    id: 'token_attack_10',
-    grants: {TokenKind.attack: 10},
-    referencePriceKrw: 3300,
-  );
-
-  /// 세트 20개(각 10개). 낱개 두 개(₩6,600)보다 싸다 — 실질적으로 이걸 사게 된다.
-  static const set20 = Product(
-    id: 'token_set_20',
-    grants: {TokenKind.shield: 10, TokenKind.attack: 10},
-    referencePriceKrw: 4990,
-  );
-
-  /// 상점 표시 순서. 세트를 맨 위에 둔다(가장 유리한 선택을 먼저 보여준다).
-  static const all = <Product>[set20, shield10, attack10];
+  /// 상점 표시 순서.
+  static const all = <Product>[boostPack10];
 
   static Product? byId(String id) {
     for (final p in all) {
@@ -108,16 +94,15 @@ class ProductOffer {
   final String title;
   final String description;
 
-  /// 스토어가 준 지역화된 가격 문자열(예: "₩4,990"). 그대로 표시할 것.
+  /// 스토어가 준 지역화된 가격 문자열(예: "₩1,000"). 그대로 표시할 것.
   final String formattedPrice;
 
-  /// 숫자 가격. 할인율·개당 단가를 **실제 지역 가격으로** 계산하기 위해 필요하다.
-  /// (하드코딩한 "24% 할인"은 다른 나라에서 거짓말이 된다)
+  /// 숫자 가격. 개당 단가를 **실제 지역 가격으로** 계산하기 위해 필요하다.
   final double? rawPrice;
 
   final String? currencyCode;
 
-  /// 토큰 1개당 가격. 가격 정보가 없으면 null.
+  /// 토큰(판) 1개당 가격. 가격 정보가 없으면 null.
   double? get pricePerToken {
     final p = rawPrice;
     if (p == null || product.tokenCount == 0) return null;
@@ -128,6 +113,7 @@ class ProductOffer {
 /// 낱개 상품 대비 세트가 몇 % 싼지 — **스토어가 준 실제 가격으로** 계산한다.
 ///
 /// 가격 정보가 없거나 더 싸지 않으면 null을 돌려준다(배지를 아예 숨긴다).
+/// 지금은 상품이 하나라 쓰지 않지만, 큰 팩을 옆에 둘 때 그대로 쓴다.
 int? discountPercent(ProductOffer set, Iterable<ProductOffer> singles) {
   final setPrice = set.rawPrice;
   if (setPrice == null || setPrice <= 0) return null;

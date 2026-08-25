@@ -155,4 +155,49 @@ void main() {
       }
     });
   });
+
+  group('부스트(칩 +1 · 스왑 1회)', () {
+    test('부스트 판은 그쪽만 칩 4개, 상대는 3개', () {
+      final g = ScoreGame.deal(seed: 1, boostFor: PlayerId.p0);
+      expect(g.veilLeft[PlayerId.p0], 4);
+      expect(g.veilsMax(PlayerId.p0), 4);
+      expect(g.veilLeft[PlayerId.p1], 3);
+      expect(g.veilsMax(PlayerId.p1), 3);
+      expect(g.isBoosted(PlayerId.p0), isTrue);
+      expect(g.canSwap(PlayerId.p1), isFalse, reason: '부스트 없는 쪽은 스왑 없음');
+    });
+
+    test('스왑은 받은 카드 전부를 새로 받고, 판에 한 번뿐', () {
+      final g = ScoreGame.deal(seed: 2, boostFor: PlayerId.p0);
+      final before = List.of(g.hands[PlayerId.p0]!);
+      expect(g.canSwap(PlayerId.p0), isTrue);
+      final fresh = g.swap(PlayerId.p0);
+      expect(fresh.length, ScoreGame.startHand, reason: '첫 라운드는 받은 6장 전부');
+      expect(g.hands[PlayerId.p0]!.length, ScoreGame.startHand);
+      expect(g.hands[PlayerId.p0]!.any(before.contains), isFalse, reason: '옛 카드가 남으면 안 된다');
+      expect(g.canSwap(PlayerId.p0), isFalse, reason: '한 판에 1회');
+      expect(() => g.swap(PlayerId.p0), throwsStateError);
+    });
+
+    test('받은 카드를 한 장이라도 놓으면 스왑 불가', () {
+      final g = ScoreGame.deal(seed: 3, boostFor: PlayerId.p0);
+      g.place(PlayerId.p0, 0, 0, 0);
+      expect(g.canSwap(PlayerId.p0), isFalse);
+    });
+
+    test('다음 라운드엔 보충 3장이 스왑 대상', () {
+      final g = ScoreGame.deal(seed: 4, boostFor: PlayerId.p0);
+      for (final p in PlayerId.values) {
+        for (var i = 0; i < 3; i++) {
+          g.place(p, 0, i, 0);
+        }
+      }
+      g.reveal(const {});
+      g.nextRound();
+      expect(g.drawnThisRound(PlayerId.p0).length, ScoreGame.refill);
+      final kept = g.hands[PlayerId.p0]!.sublist(0, 3);
+      g.swap(PlayerId.p0);
+      expect(g.hands[PlayerId.p0]!.sublist(0, 3), kept, reason: '지난 라운드 카드는 그대로');
+    });
+  });
 }

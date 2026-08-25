@@ -22,6 +22,10 @@ export 'board.dart';
 ///       주머니에서 나오므로 "지금 숨길까, 나중에 읽을까"의 상충이 생긴다.
 /// - R5) 마지막 라운드까지 끝나면 남은 뒷면 카드를 전부 여는 **최후 공개** 후 정산한다.
 ///
+/// **부스트**(상점 상품, 판당 1개까지 — [ScoreGame.deal]의 `boostFor`): 그 판에서
+/// 비공개권 칩이 +1(3→4), **손패 스왑** 1회. 스왑은 이번 라운드에 **받은 카드 전부**를
+/// 새로 받는 것이다(선택 교체 아님). 받은 카드 중 한 장이라도 필드에 놓았으면 못 쓴다.
+///
 /// 타이머는 UI 관심사 — 도메인은 배치·공개·비공개권의 회계만 책임진다.
 class ScoreGame {
   ScoreGame._(this._deck);
@@ -34,13 +38,63 @@ class ScoreGame {
   static const int refill = 3;
   static const int veilsPerMatch = 3;
 
-  /// 52장 덱으로 시작, 각자 [startHand]장 딜.
-  factory ScoreGame.deal({int? seed}) {
+  /// 52장 덱으로 시작, 각자 [startHand]장 딜. [boostFor]가 있으면 그 쪽만 부스트 판이다.
+  factory ScoreGame.deal({int? seed, PlayerId? boostFor}) {
     final g = ScoreGame._(Deck.shuffled(seed: seed));
+    if (boostFor != null) {
+      g.veilLeft[boostFor] = veilsPerMatch + 1;
+      g.swapLeft[boostFor] = 1;
+      g._boosted[boostFor] = true;
+    }
     for (final p in PlayerId.values) {
-      g.hands[p]!.addAll(g._deck.draw(startHand));
+      final drawn = g._deck.draw(startHand);
+      g.hands[p]!.addAll(drawn);
+      g._drawnThisRound[p] = List.of(drawn);
     }
     return g;
+  }
+
+  /// [p]의 판 전체 비공개권 최대치(부스트면 4). 레일의 칩 소켓 수.
+  int veilsMax(PlayerId p) => _boosted[p]! ? veilsPerMatch + 1 : veilsPerMatch;
+
+  bool isBoosted(PlayerId p) => _boosted[p]!;
+
+  /// 남은 손패 스왑 횟수(부스트 판만 1, 아니면 0).
+  late final Map<PlayerId, int> swapLeft = {
+    for (final p in PlayerId.values) p: 0,
+  };
+  late final Map<PlayerId, bool> _boosted = {
+    for (final p in PlayerId.values) p: false,
+  };
+
+  /// 이번 라운드에 **받은** 카드(스왑 대상). 딜/보충 때 채운다.
+  final Map<PlayerId, List<PlayingCard>> _drawnThisRound = {
+    PlayerId.p0: [],
+    PlayerId.p1: [],
+  };
+
+  List<PlayingCard> drawnThisRound(PlayerId p) => List.unmodifiable(_drawnThisRound[p]!);
+
+  /// 스왑 가능? 부스트가 남아 있고, 이번 라운드에 아직 **한 장도 놓지 않았고**, 공개 전.
+  bool canSwap(PlayerId p) =>
+      swapLeft[p]! > 0 &&
+      !revealDone &&
+      placedThisRound(p).isEmpty &&
+      _drawnThisRound[p]!.isNotEmpty &&
+      _deck.remaining >= _drawnThisRound[p]!.length;
+
+  /// 이번 라운드에 받은 카드를 **전부** 새로 받는다. 새 카드 목록을 돌려준다.
+  List<PlayingCard> swap(PlayerId p) {
+    if (!canSwap(p)) throw StateError('지금은 스왑할 수 없다');
+    final hand = hands[p]!;
+    for (final c in _drawnThisRound[p]!) {
+      hand.remove(c);
+    }
+    final fresh = _deck.draw(_drawnThisRound[p]!.length);
+    hand.addAll(fresh);
+    _drawnThisRound[p] = List.of(fresh);
+    swapLeft[p] = swapLeft[p]! - 1;
+    return fresh;
   }
 
   final Deck _deck;
@@ -60,7 +114,7 @@ class ScoreGame {
       ],
   };
 
-  /// 남은 비공개권(숨기기/열어보기 겸용).
+  /// 남은 비공개권(숨기기/열어보기 겸용). 부스트 판은 4로 시작한다.
   final Map<PlayerId, int> veilLeft = {
     PlayerId.p0: veilsPerMatch,
     PlayerId.p1: veilsPerMatch,
@@ -139,7 +193,9 @@ class ScoreGame {
     round++;
     revealDone = false;
     for (final p in PlayerId.values) {
-      hands[p]!.addAll(_deck.draw(refill));
+      final drawn = _deck.draw(refill);
+      hands[p]!.addAll(drawn);
+      _drawnThisRound[p] = List.of(drawn);
     }
   }
 

@@ -78,75 +78,74 @@ void main() {
     test('첫 실행에 환영 토큰을 주고, 두 번째 실행에는 다시 주지 않는다', () async {
       final a = TokenWallet();
       await a.load();
-      expect(a.balanceOf(TokenKind.shield), 3);
-      expect(a.balanceOf(TokenKind.attack), 3);
+      expect(a.balanceOf(TokenKind.boost), 3);
 
       final b = TokenWallet();
       await b.load();
-      expect(b.balanceOf(TokenKind.shield), 3, reason: '환영 지급이 실행마다 반복되면 상품이 안 팔린다');
+      expect(b.balanceOf(TokenKind.boost), 3, reason: '환영 지급이 실행마다 반복되면 상품이 안 팔린다');
     });
 
     test('쓰면 줄고, 없으면 못 쓴다', () async {
-      final w = TokenWallet(policy: const TokenGrantPolicy(welcome: {TokenKind.shield: 1}));
+      final w = TokenWallet(policy: const TokenGrantPolicy(welcome: {TokenKind.boost: 1}));
       await w.load();
-      expect(await w.spend(TokenKind.shield), isTrue);
-      expect(w.balanceOf(TokenKind.shield), 0);
-      expect(await w.spend(TokenKind.shield), isFalse);
-      expect(w.balanceOf(TokenKind.shield), 0, reason: '잔량이 음수로 내려가면 안 된다');
+      expect(await w.spend(TokenKind.boost), isTrue);
+      expect(w.balanceOf(TokenKind.boost), 0);
+      expect(await w.spend(TokenKind.boost), isFalse);
+      expect(w.balanceOf(TokenKind.boost), 0, reason: '잔량이 음수로 내려가면 안 된다');
     });
 
     test('잔량은 다음 실행에 살아난다', () async {
       final a = TokenWallet();
       await a.load();
-      await a.spend(TokenKind.shield);
+      await a.spend(TokenKind.boost);
 
       final b = TokenWallet();
       await b.load();
-      expect(b.balanceOf(TokenKind.shield), 2);
+      expect(b.balanceOf(TokenKind.boost), 2);
     });
 
-    test('데일리 무료 지급은 하루 한 번', () async {
-      final w = TokenWallet();
+    test('데일리 무료 지급은 하루 한 번(정책이 켜져 있을 때)', () async {
+      final w = TokenWallet(policy: const TokenGrantPolicy(daily: {TokenKind.boost: 1}));
       await w.load();
       final day1 = DateTime(2026, 8, 18, 9);
 
       expect(w.canClaimDaily(now: day1), isTrue);
       expect(await w.claimDaily(now: day1), isNotEmpty);
-      expect(w.balanceOf(TokenKind.shield), 4);
+      expect(w.balanceOf(TokenKind.boost), 4);
 
       expect(w.canClaimDaily(now: day1.add(const Duration(hours: 10))), isFalse);
       expect(await w.claimDaily(now: day1.add(const Duration(hours: 10))), isEmpty);
-      expect(w.balanceOf(TokenKind.shield), 4, reason: '같은 날 여러 번 받으면 무한 지급이 된다');
+      expect(w.balanceOf(TokenKind.boost), 4, reason: '같은 날 여러 번 받으면 무한 지급이 된다');
 
       expect(await w.claimDaily(now: DateTime(2026, 8, 19, 0, 1)), isNotEmpty);
-      expect(w.balanceOf(TokenKind.shield), 5);
+      expect(w.balanceOf(TokenKind.boost), 5);
     });
 
     test('같은 구매 id로는 두 번 지급하지 않는다', () async {
       final w = TokenWallet();
       await w.load();
-      final before = w.balanceOf(TokenKind.shield);
+      final before = w.balanceOf(TokenKind.boost);
 
-      expect(await w.grant(Products.shield10, purchaseId: 'txn-1'), isTrue);
-      expect(w.balanceOf(TokenKind.shield), before + 10);
+      expect(await w.grant(Products.boostPack10, purchaseId: 'txn-1'), isTrue);
+      expect(w.balanceOf(TokenKind.boost), before + 10);
 
-      expect(await w.grant(Products.shield10, purchaseId: 'txn-1'), isFalse,
+      expect(await w.grant(Products.boostPack10, purchaseId: 'txn-1'), isFalse,
           reason: '완료 처리 전에 앱이 죽으면 스토어가 같은 구매를 다시 배달한다');
-      expect(w.balanceOf(TokenKind.shield), before + 10);
+      expect(w.balanceOf(TokenKind.boost), before + 10);
 
-      expect(await w.grant(Products.shield10, purchaseId: 'txn-2'), isTrue);
-      expect(w.balanceOf(TokenKind.shield), before + 20);
+      expect(await w.grant(Products.boostPack10, purchaseId: 'txn-2'), isTrue);
+      expect(w.balanceOf(TokenKind.boost), before + 20);
     });
 
     test('중복 방지 기록은 앱을 다시 켜도 남는다', () async {
       final a = TokenWallet();
       await a.load();
-      await a.grant(Products.set20, purchaseId: 'txn-restart');
+      await a.grant(Products.boostPack10, purchaseId: 'txn-restart');
 
       final b = TokenWallet();
       await b.load();
-      expect(await b.grant(Products.set20, purchaseId: 'txn-restart'), isFalse);
-      expect(b.balanceOf(TokenKind.shield), 13);
+      expect(await b.grant(Products.boostPack10, purchaseId: 'txn-restart'), isFalse);
+      expect(b.balanceOf(TokenKind.boost), 13);
     });
 
     test('저장값이 깨져도 앱은 켜진다', () async {
@@ -154,7 +153,7 @@ void main() {
       final w = TokenWallet();
       await w.load();
       expect(w.isLoading, isFalse);
-      expect(w.balanceOf(TokenKind.shield), 3, reason: '깨진 값은 버리고 첫 실행처럼 시작한다');
+      expect(w.balanceOf(TokenKind.boost), 3, reason: '깨진 값은 버리고 첫 실행처럼 시작한다');
     });
 
     test('잔량이 바뀌면 화면에 알린다', () async {
@@ -162,59 +161,28 @@ void main() {
       await w.load();
       var notifications = 0;
       w.addListener(() => notifications++);
-      await w.spend(TokenKind.shield);
-      await w.grant(Products.attack10, purchaseId: 'txn-n');
+      await w.spend(TokenKind.boost);
+      await w.grant(Products.boostPack10, purchaseId: 'txn-n');
       expect(notifications, 2);
     });
   });
 
   group('상품 구성', () {
-    test('세트가 낱개 두 개보다 싸다 — 아니면 세트를 살 이유가 없다', () {
-      expect(Products.set20.referencePriceKrw,
-          lessThan(Products.shield10.referencePriceKrw + Products.attack10.referencePriceKrw));
-    });
-
-    test('공격과 쉴드는 같은 가격 — 둘의 강도가 대칭이라 가격도 대칭이다', () {
-      expect(Products.shield10.referencePriceKrw, Products.attack10.referencePriceKrw);
-    });
-
-    test('할인율은 스토어가 준 실제 가격으로 계산한다', () {
-      ProductOffer offer(Product p, double price) => ProductOffer(
-            product: p,
-            title: '',
-            description: '',
-            formattedPrice: '',
-            rawPrice: price,
-            currencyCode: 'KRW',
-          );
-
-      final set = offer(Products.set20, 4990);
-      final singles = [offer(Products.shield10, 3300), offer(Products.attack10, 3300)];
-      expect(discountPercent(set, singles), 24);
-
-      // 지역 가격이 달라 세트가 더 싸지 않으면 배지를 아예 숨긴다(거짓 표시 금지).
-      expect(discountPercent(offer(Products.set20, 7000), singles), isNull);
-      // 가격 정보를 못 받았으면 계산하지 않는다.
-      expect(
-        discountPercent(set, const [
-          ProductOffer(
-              product: Products.shield10, title: '', description: '', formattedPrice: '')
-        ]),
-        isNull,
-      );
+    test('부스트 팩: ₩1,000에 10판 — 한 판 100원', () {
+      expect(Products.boostPack10.referencePriceKrw, 1000);
+      expect(Products.boostPack10.tokenCount, 10);
+      expect(Products.byId('boost_pack_10'), Products.boostPack10);
     });
 
     test('개당 단가는 토큰 수로 나눈 값', () {
       const o = ProductOffer(
-        product: Products.set20,
+        product: Products.boostPack10,
         title: '',
         description: '',
-        formattedPrice: '',
-        rawPrice: 4990,
-        currencyCode: 'KRW',
+        formattedPrice: '₩1,000',
+        rawPrice: 1000,
       );
-      expect(Products.set20.tokenCount, 20);
-      expect(o.pricePerToken, closeTo(249.5, 0.01));
+      expect(o.pricePerToken, 100);
     });
   });
 
@@ -223,28 +191,27 @@ void main() {
       final purchases = _FakePurchases();
       final m = Monetization(purchases: purchases);
       await m.startAsync();
-      final before = m.wallet.balanceOf(TokenKind.shield);
+      final before = m.wallet.balanceOf(TokenKind.boost);
 
-      await m.buy(Products.set20);
+      await m.buy(Products.boostPack10);
       await settle();
 
-      expect(m.wallet.balanceOf(TokenKind.shield), before + 10);
-      expect(m.wallet.balanceOf(TokenKind.attack), before + 10);
-      expect(purchases.completed, ['txn-${Products.set20.id}'],
+      expect(m.wallet.balanceOf(TokenKind.boost), before + 10);
+      expect(purchases.completed, ['txn-${Products.boostPack10.id}'],
           reason: '소비 처리를 안 하면 안드로이드에서 같은 상품을 다시 살 수 없다');
       await m.dispose();
     });
 
     test('앱이 죽어 밀려 있던 구매도 시작 직후 지급된다', () async {
       const pending =
-          PendingPurchase(purchaseId: 'txn-pending', product: Products.attack10);
+          PendingPurchase(purchaseId: 'txn-pending', product: Products.boostPack10);
       final purchases = _FakePurchases(emitOnInitialize: pending);
       final m = Monetization(purchases: purchases);
 
       await m.startAsync();
       await settle();
 
-      expect(m.wallet.balanceOf(TokenKind.attack), 13,
+      expect(m.wallet.balanceOf(TokenKind.boost), 13,
           reason: '구독을 initialize() 뒤에 하면 이 구매를 영영 놓친다');
       expect(purchases.completed, ['txn-pending']);
       await m.dispose();
@@ -255,13 +222,13 @@ void main() {
       final m = Monetization(purchases: purchases);
       await m.startAsync();
 
-      const p = PendingPurchase(purchaseId: 'txn-dup', product: Products.shield10);
+      const p = PendingPurchase(purchaseId: 'txn-dup', product: Products.boostPack10);
       purchases.deliver(p);
       await settle();
       purchases.deliver(p);
       await settle();
 
-      expect(m.wallet.balanceOf(TokenKind.shield), 13);
+      expect(m.wallet.balanceOf(TokenKind.boost), 13);
       expect(purchases.completed, ['txn-dup', 'txn-dup'],
           reason: '완료를 다시 안 하면 스토어가 영원히 재배달한다');
       await m.dispose();
@@ -273,12 +240,12 @@ void main() {
       await m.startAsync();
 
       purchases.deliver(
-          const PendingPurchase(purchaseId: 'a', product: Products.shield10));
+          const PendingPurchase(purchaseId: 'a', product: Products.boostPack10));
       purchases.deliver(
-          const PendingPurchase(purchaseId: 'b', product: Products.shield10));
+          const PendingPurchase(purchaseId: 'b', product: Products.boostPack10));
       await settle();
 
-      expect(m.wallet.balanceOf(TokenKind.shield), 23,
+      expect(m.wallet.balanceOf(TokenKind.boost), 23,
           reason: '직렬화하지 않으면 둘이 같은 잔량을 읽고 한 건이 사라진다');
       await m.dispose();
     });
@@ -297,7 +264,7 @@ void main() {
       await m.startAsync();
       expect(m.offers.value.length, Products.all.length);
       expect(m.purchases.isSupported, isFalse);
-      final result = await m.buy(Products.set20);
+      final result = await m.buy(Products.boostPack10);
       expect(result.status, PurchaseStatus.notSupported);
       await m.dispose();
     });
