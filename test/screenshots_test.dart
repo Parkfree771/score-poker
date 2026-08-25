@@ -584,7 +584,7 @@ void main() {
   });
 
   testWidgets('card gallery', (tester) async {
-    await tester.binding.setSurfaceSize(const Size(560, 340));
+    await tester.binding.setSurfaceSize(const Size(560, 420));
     await tester.pumpWidget(_app(
       Scaffold(
         body: Container(
@@ -600,6 +600,9 @@ void main() {
             CardFace(card: PlayingCard(7, Suit.clubs), size: 84),
             CardFace(card: PlayingCard(2, Suit.hearts), size: 84),
             CardFace(card: PlayingCard(9, Suit.spades), size: 84),
+            // 뒷면 — 앞면과 같은 프레임 위에 카지노 백(사선 격자·브라스 프레임·메달리온).
+            CardBack(size: 84),
+            CardBack(size: 168),
           ],
         ),
         ),

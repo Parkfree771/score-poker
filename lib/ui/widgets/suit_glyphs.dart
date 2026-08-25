@@ -46,26 +46,45 @@ String cardFrameSvg(String outlineHex) => '''
 </svg>''';
 
 /// 카드 **뒷면**: 카드 프레임과 같은 viewBox(96 72 230 312)로 정렬.
-/// 아이보리 테두리 + 딥 레드 몸체 + 크림 격자/브라스 다이아몬드(클래식 트럼프 백).
-String cardBackSvg() => '''
+///
+/// 카지노 백의 문법으로 다시 그렸다 — 아이보리 테두리 → 브라스 이중 프레임(모서리 ◆) →
+/// 딥 버건디 몸체에 **사선 격자(다이아퍼)** → 가운데 크림 메달리온 + 브라스 ◆(테이블
+/// 프레임의 ◆캡과 같은 언어). 50px에서도 읽히도록 격자는 성기고, 메달리온은 크게.
+String cardBackSvg() {
+  const x0 = 120.0, y0 = 97.0, w = 182.0, h = 262.0; // 몸체
+  const cx = x0 + w / 2, cy = y0 + h / 2;
+  final lattice = StringBuffer();
+  // 45° 사선 두 방향. 간격 26 — 촘촘하면 작은 카드에서 회색 얼룩이 된다.
+  for (var k = -h; k <= w + h; k += 26) {
+    lattice.write('<path d="M${x0 + k} $y0 L${x0 + k - h} ${y0 + h}"/>');
+    lattice.write('<path d="M${x0 + k - h} $y0 L${x0 + k} ${y0 + h}"/>');
+  }
+  String corner(double x, double y) =>
+      '<path d="M$x ${y - 7} L${x + 7} $y L$x ${y + 7} L${x - 7} $y Z" fill="#D4A24A"/>';
+  return '''
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="96 72 230 312">
+<defs>
+<clipPath id="body"><rect x="$x0" y="$y0" width="$w" height="$h" rx="16"/></clipPath>
+<radialGradient id="field" cx="0.5" cy="0.42" r="0.75">
+<stop offset="0" stop-color="#8A3A2C"/><stop offset="1" stop-color="#5E2019"/>
+</radialGradient>
+</defs>
 <path d="M119.791 77.312c-11.045.102-19.916 9.138-19.814 20.184L102.41 360.5c.103 11.045 9.14 19.916 20.185 19.814l179.992-1.665c11.045-.103 19.916-9.14 19.814-20.185L319.968 95.46c-.103-11.045-9.14-19.916-20.185-19.814z" fill="#F5EFDF"/>
-<rect x="120" y="97" width="182" height="262" rx="16" fill="#7E3327"/>
-<rect x="120" y="97" width="182" height="262" rx="16" fill="none" stroke="#D4A24A" stroke-width="3"/>
-<rect x="131" y="108" width="160" height="240" rx="11" fill="none" stroke="#D4A24A" stroke-width="1.4" opacity="0.7"/>
-<g stroke="#F5EFDF" stroke-width="2.4" stroke-linejoin="round" fill="none" opacity="0.28">
-<path d="M211 172 L233 200 L211 228 L189 200 Z"/>
-<path d="M211 172 L233 200 L211 228 L189 200 Z" transform="translate(-42,0)"/>
-<path d="M211 172 L233 200 L211 228 L189 200 Z" transform="translate(42,0)"/>
-<path d="M211 172 L233 200 L211 228 L189 200 Z" transform="translate(-21,-42)"/>
-<path d="M211 172 L233 200 L211 228 L189 200 Z" transform="translate(21,-42)"/>
-<path d="M211 172 L233 200 L211 228 L189 200 Z" transform="translate(-21,42)"/>
-<path d="M211 172 L233 200 L211 228 L189 200 Z" transform="translate(21,42)"/>
+<rect x="$x0" y="$y0" width="$w" height="$h" rx="16" fill="url(#field)"/>
+<g clip-path="url(#body)" stroke="#F5EFDF" stroke-width="1.3" opacity="0.2" fill="none">
+$lattice
 </g>
-<path d="M211 184 L227 200 L211 216 L195 200 Z" fill="#D4A24A" stroke="#26251C" stroke-width="3" stroke-linejoin="round"/>
-<circle cx="211" cy="200" r="4.5" fill="#26251C"/>
+<rect x="$x0" y="$y0" width="$w" height="$h" rx="16" fill="none" stroke="#D4A24A" stroke-width="3.2"/>
+<rect x="${x0 + 10}" y="${y0 + 10}" width="${w - 20}" height="${h - 20}" rx="10" fill="none" stroke="#F5EFDF" stroke-width="1.2" opacity="0.55"/>
+${corner(x0 + 10, y0 + 10)}${corner(x0 + w - 10, y0 + 10)}${corner(x0 + 10, y0 + h - 10)}${corner(x0 + w - 10, y0 + h - 10)}
+<ellipse cx="$cx" cy="$cy" rx="46" ry="60" fill="#5E2019" opacity="0.55"/>
+<ellipse cx="$cx" cy="$cy" rx="40" ry="54" fill="#F5EFDF"/>
+<ellipse cx="$cx" cy="$cy" rx="34" ry="48" fill="none" stroke="#D4A24A" stroke-width="2"/>
+<path d="M$cx ${cy - 30} L${cx + 22} $cy L$cx ${cy + 30} L${cx - 22} $cy Z" fill="#D4A24A" stroke="#26251C" stroke-width="3" stroke-linejoin="round"/>
+<circle cx="$cx" cy="$cy" r="5" fill="#26251C"/>
 <path d="M119.791 77.312c-11.045.102-19.916 9.138-19.814 20.184L102.41 360.5c.103 11.045 9.14 19.916 20.185 19.814l179.992-1.665c11.045-.103 19.916-9.14 19.814-20.185L319.968 95.46c-.103-11.045-9.14-19.916-20.185-19.814z" fill="none" stroke="#26251C" stroke-width="7" stroke-linejoin="round"/>
 </svg>''';
+}
 
 /// 코너/텍스트용 무늬 색.
 bool suitIsRed(Suit s) => s == Suit.hearts || s == Suit.diamonds;
