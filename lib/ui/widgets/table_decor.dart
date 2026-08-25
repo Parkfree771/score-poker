@@ -270,9 +270,16 @@ class DiscardPileView extends StatelessWidget {
 
 /// 차례 표시 아바타. [active]면 골드 링이 숨쉬듯 은은하게 밝아졌다 어두워진다.
 class TurnAvatar extends StatefulWidget {
-  const TurnAvatar({super.key, required this.color, required this.active});
+  const TurnAvatar(
+      {super.key, required this.color, required this.active, this.child, this.background});
   final Color color;
   final bool active;
+
+  /// 기본 사람 아이콘 대신 넣을 얼굴(페르소나 로티 등).
+  final Widget? child;
+
+  /// [child]를 쓸 때의 배경색. null이면 [color].
+  final Color? background;
 
   @override
   State<TurnAvatar> createState() => _TurnAvatarState();
@@ -332,11 +339,12 @@ class _TurnAvatarState extends State<TurnAvatar> with SingleTickerProviderStateM
         width: 28,
         height: 28,
         decoration: BoxDecoration(
-          color: widget.color.withValues(alpha: 0.9),
+          color: (widget.background ?? widget.color).withValues(alpha: 0.9),
           shape: BoxShape.circle,
         ),
         alignment: Alignment.center,
-        child: const Icon(Icons.person_rounded, size: 17, color: Colors.white),
+        child: widget.child ??
+            const Icon(Icons.person_rounded, size: 17, color: Colors.white),
       ),
     ),
     );

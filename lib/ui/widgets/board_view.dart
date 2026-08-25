@@ -76,7 +76,10 @@ class BoardView extends StatelessWidget {
   static const double _landscapeRatio = 1.36; // 가로: 원비율
   static const double _centerW = 66; // 가로 모드 중앙 점수 열 폭
   static const double _slotPadV = 1; // _BoardSlot 세로 패딩(위/아래 각각)
-  static const double _laneGap = 38; // 세로 모드에서 골드 선·점수 알약이 앉는 틈
+  // 세로 모드에서 골드 선·점수 알약이 앉는 틈. 알약은 **이 안에만** 그려진다 —
+  // 카드를 덮으면 안 되므로 알약을 키우고 싶으면 이 값을 키운다.
+  static const double _laneGap = 54;
+  static const double _pillW = 84;
 
   // 보드 높이는 셀 크기에서 그대로 계산된다 → IntrinsicHeight(서브트리를 두 번
   // 레이아웃한다)를 쓸 이유가 없다. 아래 값이 IntrinsicHeight가 재던 값과 같다.
@@ -192,7 +195,8 @@ class BoardView extends StatelessWidget {
           // 알약에 가린 가운데 칸의 탭을 알약이 먹어버려 카드를 놓을 수 없다.
           IgnorePointer(
             child: SizedBox(
-                width: 78,
+                width: _pillW,
+                height: _laneGap - 4,
                 child: FittedBox(fit: BoxFit.scaleDown, child: _pill(l))),
           ),
         ],
@@ -265,6 +269,7 @@ class BoardView extends StatelessWidget {
                     child: IgnorePointer(
                       child: SizedBox(
                         width: _centerW - 6,
+                        height: _rowH - 8,
                         child: FittedBox(fit: BoxFit.scaleDown, child: _pill(l)),
                       ),
                     ),
@@ -581,7 +586,7 @@ class _ScorePill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final o = compareLine(mine, theirs);
-    final color = switch (o) {
+    final tint = switch (o) {
       LineOutcome.win => AppColors.win,
       LineOutcome.lose => AppColors.lose,
       LineOutcome.tie => AppColors.tie,
@@ -591,7 +596,9 @@ class _ScorePill extends StatelessWidget {
     // 로컬라이제이션이 없는 환경(단독 위젯 테스트)에서는 이름 없이 숫자만 보여준다.
     final l10n = Localizations.of<AppLocalizations>(context, AppLocalizations);
 
-    Widget side(List<PlayingCard> cards, int score, Color c, bool strong) {
+    // 펠트 위의 브라스 명패. 흰 배경·네온 글로우는 판과 따로 놀았다 —
+    // 표면은 판과 같은 어두운 초록, 테두리는 브라스, 승패는 점수 색과 가운데 눈금으로만.
+    Widget side(List<PlayingCard> cards, int score, bool strong) {
       final name = (l10n == null || cards.isEmpty)
           ? null
           : handCategoryShort(l10n, evaluateHand(cards).category);
@@ -601,16 +608,20 @@ class _ScorePill extends StatelessWidget {
         children: [
           if (name != null) ...[
             Text(name,
-                style: TextStyle(
-                    color: c, fontWeight: FontWeight.w800, fontSize: 10, height: 1)),
+                style: const TextStyle(
+                    color: AppColors.inkSoft,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 8.5,
+                    height: 1)),
             const SizedBox(width: 4),
           ],
           Text('$score',
               style: TextStyle(
-                color: c,
+                color: strong ? AppColors.goldSoft : AppColors.textMain,
                 fontWeight: strong ? FontWeight.w900 : FontWeight.w700,
-                fontSize: strong ? 15 : 13,
+                fontSize: strong ? 13 : 11.5,
                 height: 1,
+                fontFeatures: const [FontFeature.tabularFigures()],
               )),
         ],
       );
@@ -624,26 +635,31 @@ class _ScorePill extends StatelessWidget {
       curve: Curves.elasticOut,
       builder: (context, v, child) => Transform.scale(scale: v, child: child),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color, width: 2),
-          boxShadow: [BoxShadow(color: color.withValues(alpha: 0.45), blurRadius: 10)],
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(9),
+          border: Border.all(color: AppColors.gold.withValues(alpha: 0.85), width: 1.2),
+          boxShadow: [
+            BoxShadow(
+                color: AppColors.ink.withValues(alpha: 0.5),
+                blurRadius: 6,
+                offset: const Offset(0, 2)),
+          ],
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             // 위가 상대, 아래가 나 — 세로 보드의 위아래 배치와 같은 순서다.
-            side(theirs, oppScore, AppColors.oppPrimary, o == LineOutcome.lose),
+            side(theirs, oppScore, o == LineOutcome.lose),
             Container(
-              margin: const EdgeInsets.symmetric(vertical: 3),
-              width: 30,
-              height: 2.5,
+              margin: const EdgeInsets.symmetric(vertical: 2.5),
+              width: 26,
+              height: 2,
               decoration:
-                  BoxDecoration(color: color, borderRadius: BorderRadius.circular(2)),
+                  BoxDecoration(color: tint, borderRadius: BorderRadius.circular(2)),
             ),
-            side(mine, myScore, AppColors.mePrimary, o == LineOutcome.win),
+            side(mine, myScore, o == LineOutcome.win),
           ],
         ),
       ),

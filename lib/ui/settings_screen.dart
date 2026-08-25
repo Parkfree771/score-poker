@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../audio/sfx.dart';
 import '../data/app_settings.dart';
@@ -28,6 +29,9 @@ class LanguageOption {
 }
 
 /// 설정: 언어 선택 + 효과음 + 앱 정보.
+/// 스토어 등록에 쓴 것과 같은 주소(store/listing.md).
+const kPrivacyPolicyUrl = 'https://parkfree771.github.io/score-poker/privacy.html';
+
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key, this.version = '1.0.0'});
 
@@ -113,14 +117,50 @@ class SettingsScreen extends StatelessWidget {
                   _SectionLabel(l10n.aboutSectionTitle),
                   const SizedBox(height: 8),
                   _Panel(
-                    child: ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
-                      title: Text(l10n.appVersion,
-                          style: const TextStyle(
-                              color: AppColors.textMain, fontWeight: FontWeight.w600)),
-                      trailing: Text(version,
-                          style: const TextStyle(
-                              color: AppColors.textMuted, fontWeight: FontWeight.w700)),
+                    child: Column(
+                      children: [
+                        ListTile(
+                          contentPadding:
+                              const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
+                          title: Text(l10n.appVersion,
+                              style: const TextStyle(
+                                  color: AppColors.textMain, fontWeight: FontWeight.w600)),
+                          trailing: Text(version,
+                              style: const TextStyle(
+                                  color: AppColors.textMuted, fontWeight: FontWeight.w700)),
+                        ),
+                        const Divider(height: 1, color: AppColors.stroke),
+                        // 스토어 심사 필수 항목 — 앱 안에서 방침에 닿을 수 있어야 한다.
+                        ListTile(
+                          contentPadding:
+                              const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
+                          leading: const Icon(Icons.privacy_tip_outlined,
+                              color: AppColors.gold, size: 20),
+                          title: Text(l10n.privacyPolicy,
+                              style: const TextStyle(
+                                  color: AppColors.textMain, fontWeight: FontWeight.w600)),
+                          trailing: const Icon(Icons.open_in_new_rounded,
+                              color: AppColors.textMuted, size: 18),
+                          onTap: () => launchUrl(Uri.parse(kPrivacyPolicyUrl),
+                              mode: LaunchMode.externalApplication),
+                        ),
+                        const Divider(height: 1, color: AppColors.stroke),
+                        ListTile(
+                          contentPadding:
+                              const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
+                          leading: const Icon(Icons.article_outlined,
+                              color: AppColors.gold, size: 20),
+                          title: Text(l10n.openSourceLicenses,
+                              style: const TextStyle(
+                                  color: AppColors.textMain, fontWeight: FontWeight.w600)),
+                          trailing: const Icon(Icons.chevron_right,
+                              color: AppColors.textMuted),
+                          onTap: () => showLicensePage(
+                              context: context,
+                              applicationName: l10n.appTitle,
+                              applicationVersion: version),
+                        ),
+                      ],
                     ),
                   ),
                 ],

@@ -5,6 +5,7 @@ import 'package:score_poker/l10n/app_localizations_ko.dart';
 import 'package:score_poker/ui/game_screen.dart';
 import 'package:score_poker/ui/personas.dart';
 import 'package:score_poker/ui/widgets/board_view.dart';
+import 'package:score_poker/ui/widgets/veil_chip.dart';
 
 /// **한 판을 실제로 끝까지 눌러 본다.** 도메인 테스트가 통과해도 화면에서
 /// 손이 막히면 게임은 안 되는 것이다 — 여기서 보는 것은 흐름 그 자체다:
@@ -54,8 +55,11 @@ void main() {
     expect(find.byType(BoardView), findsOneWidget);
     expect(labeled('hand-'), findsNWidgets(6), reason: '시작 손패 6장');
     expect(find.text(l10n.roundLabel(1)), findsOneWidget);
-    // 상대 캐릭터가 인사한다.
-    expect(find.text(clode.lines.greeting.first), findsOneWidget);
+    // 상대 캐릭터가 인사한다(대사는 목록에서 무작위 — 어느 것이든 하나).
+    expect(
+        find.byWidgetPredicate(
+            (w) => w is Text && clode.lines.greeting.contains(w.data)),
+        findsOneWidget);
 
     for (var round = 1; round <= 5; round++) {
       expect(find.text(l10n.roundLabel(round)), findsOneWidget,
@@ -63,7 +67,12 @@ void main() {
 
       // 라운드 표시는 딜링이 시작될 때 이미 바뀐다 — **딜링 중 탭은 무시되므로**
       // 배치 안내가 뜰 때까지(= 배치 단계) 기다렸다가 손을 댄다.
-      await waitFor(tester, find.text(l10n.vlPlacePrompt),
+      // 좁으면 첫 " · "가 줄바꿈으로 바뀌어 보인다 — 둘 다 같은 안내로 친다.
+      await waitFor(
+          tester,
+          find.byWidgetPredicate((w) =>
+              w is Text &&
+              w.data?.replaceFirst('\n', ' · ') == l10n.vlPlacePrompt),
           max: const Duration(seconds: 10));
 
       // ── 배치: 손패에서 3장을 골라 세 줄에 한 장씩 ──────────────────────────
@@ -79,7 +88,7 @@ void main() {
       // ── 봉인: 2라운드에 한 번, 방금 놓은 카드를 덮어 둔다 ──────────────────
       if (round == 2) {
         final coinsBefore = tester
-            .widgetList<VeilCoin>(find.byType(VeilCoin))
+            .widgetList<VeilChip>(find.byType(VeilChip))
             .where((c) => c.filled)
             .length;
         await tester.tap(labeled('cell-p0-0-${round - 1}'), warnIfMissed: false);
@@ -87,7 +96,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 400));
         expect(find.byType(SealStamp), findsOneWidget, reason: '봉인 도장');
         final coinsAfter = tester
-            .widgetList<VeilCoin>(find.byType(VeilCoin))
+            .widgetList<VeilChip>(find.byType(VeilChip))
             .where((c) => c.filled)
             .length;
         expect(coinsAfter, coinsBefore - 1, reason: '비공개권 1개 소모');

@@ -97,13 +97,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 28),
-                  _ModeCard(
-                    icon: Icons.public,
-                    title: l10n.modePvpTitle,
-                    description: l10n.modePvpDesc,
-                    onTap: () => _notReady(context, l10n),
-                  ),
-                  const SizedBox(height: 14),
+                  // 지금 할 수 있는 것이 첫 번째. 온라인은 출시 전이라 '준비 중'을 붙인다.
                   _ModeCard(
                     icon: Icons.smart_toy,
                     title: l10n.modeSingleTitle,
@@ -111,6 +105,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(builder: (_) => const PersonaSelectScreen()),
                     ),
+                  ),
+                  const SizedBox(height: 14),
+                  _ModeCard(
+                    icon: Icons.public,
+                    title: l10n.modePvpTitle,
+                    description: l10n.modePvpDesc,
+                    badge: l10n.comingSoon,
+                    onTap: () => _notReady(context, l10n),
                   ),
                   const SizedBox(height: 10),
                   // 규칙이 특이한 게임이라 "어떻게 하는 건데?"가 첫 화면에서 보여야 한다.
@@ -220,6 +222,7 @@ class _ModeCard extends StatelessWidget {
     required this.title,
     required this.description,
     required this.onTap,
+    this.badge,
   });
 
   final IconData icon;
@@ -227,16 +230,45 @@ class _ModeCard extends StatelessWidget {
   final String description;
   final VoidCallback onTap;
 
+  /// 제목 옆 작은 라벨('준비 중'). 있으면 카드가 살짝 가라앉는다.
+  final String? badge;
+
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-        leading: Icon(icon, size: 36),
-        title: Text(title, style: Theme.of(context).textTheme.titleLarge),
-        subtitle: Text(description),
-        trailing: const Icon(Icons.chevron_right),
-        onTap: onTap,
+    final muted = badge != null;
+    return Opacity(
+      opacity: muted ? 0.72 : 1,
+      child: Card(
+        child: ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          leading: Icon(icon, size: 36),
+          title: Row(
+            children: [
+              Flexible(
+                child: Text(title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleLarge),
+              ),
+              if (badge != null) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: AppColors.gold, width: 1.2),
+                  ),
+                  child: Text(badge!,
+                      style: const TextStyle(
+                          color: AppColors.gold, fontSize: 11, fontWeight: FontWeight.w800)),
+                ),
+              ],
+            ],
+          ),
+          subtitle: Text(description),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: onTap,
+        ),
       ),
     );
   }

@@ -138,7 +138,7 @@ class _PersonaCard extends StatelessWidget {
       ),
       child: Text(persona.tagline,
           maxLines: 1,
-          overflow: TextOverflow.ellipsis,
+          softWrap: false,
           style: const TextStyle(color: AppColors.ink, fontWeight: FontWeight.w900, fontSize: 11.5)),
     );
 
@@ -150,18 +150,20 @@ class _PersonaCard extends StatelessWidget {
         // 이름과 태그라인은 둘 다 줄어들 수 있어야 한다 — 번역에 따라 길이가 크게
         // 달라진다("신중한 전략가" vs "Cautious strategist"). 고정 크기로 두면
         // 영어에서 가로로 넘친다.
-        Row(
-          mainAxisSize: vertical ? MainAxisSize.min : MainAxisSize.max,
+        // 이름 옆에 배지가 안 들어가면 **아래 줄로 내려간다** — "자신만만한 승…"처럼
+        // 배지를 잘라 보여주는 일이 없어야 한다.
+        Wrap(
+          alignment: vertical ? WrapAlignment.center : WrapAlignment.start,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 10,
+          runSpacing: 4,
           children: [
-            Flexible(
-              child: Text(persona.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      color: c, fontWeight: FontWeight.w900, fontSize: 23, letterSpacing: 0.5)),
-            ),
-            const SizedBox(width: 10),
-            Flexible(child: taglineChip),
+            Text(persona.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    color: c, fontWeight: FontWeight.w900, fontSize: 23, letterSpacing: 0.5)),
+            taglineChip,
           ],
         ),
         const SizedBox(height: 5),

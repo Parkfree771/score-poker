@@ -23,6 +23,7 @@ import 'widgets/emote_bubble.dart';
 import 'widgets/flying_card.dart';
 import 'widgets/impact_effects.dart';
 import 'widgets/table_decor.dart';
+import 'widgets/veil_chip.dart';
 
 /// 게임 화면 — 상대 스트립 / 펠트 테이블(덱|보드|우측 열) / 내 스트립+손패.
 /// 룰은 `domain/game.dart` 참고.
@@ -782,9 +783,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       padding: const EdgeInsets.fromLTRB(16, 8, 6, 2),
       child: Row(
         children: [
-          TurnAvatar(
-              color: widget.persona?.color ?? AppColors.oppPrimary,
-              active: _phase == _Phase.placing && !g.isFinished),
+          _oppAvatar(),
           const SizedBox(width: 8),
           Flexible(
             child: Text(widget.persona?.name ?? l10n.player2,
@@ -795,9 +794,13 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           const SizedBox(width: 10),
           _WinsPill(count: wins.opp, color: AppColors.oppPrimary),
           const Spacer(),
-          FaceDownHand(
-              key: _oppHandKey,
-              count: _phase == _Phase.dealing ? _dealtOpp : g.hands[ai]!.length),
+          Tooltip(
+            message: l10n.oppHandTip(g.hands[ai]!.length),
+            triggerMode: TooltipTriggerMode.tap,
+            child: FaceDownHand(
+                key: _oppHandKey,
+                count: _phase == _Phase.dealing ? _dealtOpp : g.hands[ai]!.length),
+          ),
           IconButton(
             icon: const Icon(Icons.refresh_rounded),
             color: AppColors.inkSoft,
@@ -809,15 +812,26 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     );
   }
 
+  /// 상대 아바타 — 페르소나가 있으면 선택 화면·결과 컷과 같은 로티 아이콘.
+  Widget _oppAvatar() {
+    final p = widget.persona;
+    return TurnAvatar(
+      color: p?.color ?? AppColors.oppPrimary,
+      active: _phase == _Phase.placing && !g.isFinished,
+      background: p?.badgeBg,
+      child: p == null
+          ? null
+          : PersonaIcon(asset: p.asset, size: 20, colorOverrides: p.colorOverrides),
+    );
+  }
+
   Widget _lsTopRow(AppLocalizations l10n) {
     final wins = _publicWins();
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 6, 8, 0),
       child: Row(
         children: [
-          TurnAvatar(
-              color: widget.persona?.color ?? AppColors.oppPrimary,
-              active: _phase == _Phase.placing && !g.isFinished),
+          _oppAvatar(),
           const SizedBox(width: 8),
           _WinsPill(count: wins.opp, color: AppColors.oppPrimary),
           const SizedBox(width: 10),
@@ -846,17 +860,31 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     );
   }
 
-  /// 비공개권 코인 3개(가로). 쓴 만큼 빈 소켓.
+  /// 비공개권 칩 3개(가로). 쓴 만큼 빈 소켓.
   Widget _coinsRow(int filled, {required Color ring}) => Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           for (var i = 0; i < 3; i++)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 1.5),
-              child: VeilCoin(size: 17, filled: i < filled, ring: ring),
+              child: _chip(i, filled, ring, size: 24),
             ),
         ],
       );
+
+  /// 칩 하나. 누르면 뒤집히며(로티 flip) 남은 개수·용법 툴팁이 뜬다.
+  Widget _chip(int i, int filled, Color ring, {required double size}) {
+    final l10n = AppLocalizations.of(context);
+    final mine = ring == AppColors.mePrimary;
+    return VeilChip(
+      size: size,
+      filled: i < filled,
+      ring: ring,
+      label: mine ? l10n.veilChipsMine(filled) : l10n.veilChipsOpp(filled),
+      onTap: () => _haptic(Haptic.select),
+      animate: !g.isFinished,
+    );
+  }
 
   /// 이번 라운드 남은 배치 3칸 — 미니 카드 핍. 놓을수록 비워진다.
   Widget _placePips({required bool horizontal}) {
@@ -883,7 +911,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   Widget _deckCounter() {
-    return Padding(
+    final l10n = AppLocalizations.of(context);
+    return Tooltip(
+      message: l10n.deckRemainingTip(g.deckRemaining),
+      triggerMode: TooltipTriggerMode.tap,
+      child: Padding(
       key: _deckKey,
       padding: const EdgeInsets.symmetric(horizontal: 6),
       child: Row(
@@ -896,6 +928,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   color: AppColors.textMuted, fontWeight: FontWeight.w800, fontSize: 13)),
         ],
       ),
+    ),
     );
   }
 
@@ -1001,8 +1034,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         children: [
           for (var i = 0; i < 3; i++)
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 1.5),
-              child: VeilCoin(size: 19, filled: i < filled, ring: ring),
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: _chip(i, filled, ring, size: 28),
             ),
         ],
       );
@@ -1154,8 +1187,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     return SizedBox(
       height: height,
       child: hand.isEmpty
-          ? const Center(
-              child: Text('—', style: TextStyle(color: AppColors.textMuted, fontSize: 20)))
+          ? const SizedBox.shrink()
           : Center(
               child: FittedBox(
                 fit: BoxFit.scaleDown,
@@ -1190,6 +1222,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     );
   }
 
+  static const _hintStyle =
+      TextStyle(color: AppColors.textMuted, fontSize: 11.5, fontWeight: FontWeight.w600);
+
   Widget _hint(AppLocalizations l10n) {
     final String text;
     switch (_phase) {
@@ -1203,10 +1238,23 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     if (text.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(top: 2),
-      child: Text(text,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-              color: AppColors.textMuted, fontSize: 11.5, fontWeight: FontWeight.w600)),
+      child: LayoutBuilder(builder: (context, c) {
+        // 좁은 화면(360dp)에서는 단어 한가운데서 꺾이지 않도록 첫 구분점(" · ")에서
+        // **의도한 두 줄**로 나눈다: "3장을 놓으세요 / 내 카드 탭 = … · 상대 뒷면 탭 = …".
+        final painter = TextPainter(
+          text: TextSpan(text: text, style: _hintStyle),
+          textDirection: TextDirection.ltr,
+          maxLines: 1,
+        )..layout(maxWidth: double.infinity);
+        final shown =
+            painter.width > c.maxWidth ? text.replaceFirst(' · ', '\n') : text;
+        painter.dispose();
+        return Text(shown,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: _hintStyle);
+      }),
     );
   }
 
