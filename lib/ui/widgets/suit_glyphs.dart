@@ -48,8 +48,8 @@ String cardFrameSvg(String outlineHex) => '''
 /// 카드 **뒷면**: 카드 프레임과 같은 viewBox(96 72 230 312)로 정렬.
 ///
 /// 카지노 백의 문법으로 다시 그렸다 — 아이보리 테두리 → 브라스 이중 프레임(모서리 ◆) →
-/// 딥 버건디 몸체에 **사선 격자(다이아퍼)** → 가운데 크림 메달리온 + 브라스 ◆(테이블
-/// 프레임의 ◆캡과 같은 언어). 50px에서도 읽히도록 격자는 성기고, 메달리온은 크게.
+/// 딥 버건디 몸체에 **사선 격자(다이아퍼)** → 가운데는 가는 브라스 이중 마름모 선과 작은 ◆뿐.
+/// (크림 메달리온은 촌스러워서 뺐다 — 격자가 주인공, 중앙은 선 하나로 절제.)
 String cardBackSvg() {
   const x0 = 120.0, y0 = 97.0, w = 182.0, h = 262.0; // 몸체
   const cx = x0 + w / 2, cy = y0 + h / 2;
@@ -77,11 +77,11 @@ $lattice
 <rect x="$x0" y="$y0" width="$w" height="$h" rx="16" fill="none" stroke="#D4A24A" stroke-width="3.2"/>
 <rect x="${x0 + 10}" y="${y0 + 10}" width="${w - 20}" height="${h - 20}" rx="10" fill="none" stroke="#F5EFDF" stroke-width="1.2" opacity="0.55"/>
 ${corner(x0 + 10, y0 + 10)}${corner(x0 + w - 10, y0 + 10)}${corner(x0 + 10, y0 + h - 10)}${corner(x0 + w - 10, y0 + h - 10)}
-<ellipse cx="$cx" cy="$cy" rx="46" ry="60" fill="#5E2019" opacity="0.55"/>
-<ellipse cx="$cx" cy="$cy" rx="40" ry="54" fill="#F5EFDF"/>
-<ellipse cx="$cx" cy="$cy" rx="34" ry="48" fill="none" stroke="#D4A24A" stroke-width="2"/>
-<path d="M$cx ${cy - 30} L${cx + 22} $cy L$cx ${cy + 30} L${cx - 22} $cy Z" fill="#D4A24A" stroke="#26251C" stroke-width="3" stroke-linejoin="round"/>
-<circle cx="$cx" cy="$cy" r="5" fill="#26251C"/>
+<g fill="none" stroke="#D4A24A" stroke-linejoin="round">
+<path d="M$cx ${cy - 52} L${cx + 38} $cy L$cx ${cy + 52} L${cx - 38} $cy Z" stroke-width="2.2"/>
+<path d="M$cx ${cy - 40} L${cx + 29} $cy L$cx ${cy + 40} L${cx - 29} $cy Z" stroke-width="1.2" opacity="0.7"/>
+</g>
+<path d="M$cx ${cy - 11} L${cx + 8} $cy L$cx ${cy + 11} L${cx - 8} $cy Z" fill="#D4A24A"/>
 <path d="M119.791 77.312c-11.045.102-19.916 9.138-19.814 20.184L102.41 360.5c.103 11.045 9.14 19.916 20.185 19.814l179.992-1.665c11.045-.103 19.916-9.14 19.814-20.185L319.968 95.46c-.103-11.045-9.14-19.916-20.185-19.814z" fill="none" stroke="#26251C" stroke-width="7" stroke-linejoin="round"/>
 </svg>''';
 }

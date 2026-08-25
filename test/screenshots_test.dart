@@ -379,7 +379,7 @@ void main() {
     await tester.pump(const Duration(seconds: 4));
   });
 
-  Widget celebrationDemo({String title = '포카드', String subtitle = ''}) => Stack(
+  Widget celebrationDemo({String title = 'FOUR CARD!', String subtitle = ''}) => Stack(
         key: const Key('celebration-demo'),
         children: [
           GameScreen(initialGame: _demoState()),
@@ -391,7 +391,7 @@ void main() {
   testWidgets('celebration long title', (tester) async {
     await setScreen(tester, _portrait);
     await tester.pumpWidget(
-        _app(celebrationDemo(title: '스트레이트 플러쉬')));
+        _app(celebrationDemo(title: 'STRAIGHT FLUSH!')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     await expectLater(find.byKey(const Key('celebration-demo')),
