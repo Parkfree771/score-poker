@@ -5,11 +5,14 @@ import 'package:flutter/widgets.dart';
 import 'products.dart';
 import 'purchase_service.dart';
 import 'purchase_service_factory.dart';
+import 'rewarded_ad_service.dart';
+import 'tokens.dart';
 import 'wallet.dart';
 
 export 'products.dart';
 export 'purchase_service.dart';
 export 'purchase_service_factory.dart';
+export 'rewarded_ad_service.dart';
 export 'tokens.dart';
 export 'wallet.dart';
 export 'wallet_store.dart';
@@ -22,12 +25,29 @@ export 'wallet_store.dart';
 class Monetization {
   /// [purchases]를 비우면 플랫폼에 맞는 구현이 자동으로 선택된다
   /// (모바일 = 실제 스토어, 웹·데스크톱·테스트 = 스텁).
-  Monetization({PurchaseService? purchases, TokenWallet? wallet})
-      : purchases = purchases ?? createPurchaseService(),
-        wallet = wallet ?? TokenWallet();
+  ///
+  /// [rewardedAds]를 비우면 스텁이 들어간다(실제 광고 SDK는 아직 없다 — 앱이 목 광고
+  /// 화면을 presenter로 꽂는다).
+  Monetization({
+    PurchaseService? purchases,
+    TokenWallet? wallet,
+    RewardedAdService? rewardedAds,
+  })  : purchases = purchases ?? createPurchaseService(),
+        wallet = wallet ?? TokenWallet(),
+        rewardedAds = rewardedAds ?? StubRewardedAdService();
 
   final PurchaseService purchases;
   final TokenWallet wallet;
+  final RewardedAdService rewardedAds;
+
+  /// 광고 1회당 주는 부스트 판 수(문구용).
+  int get policyAdReward => wallet.policy.adReward[TokenKind.boost] ?? 0;
+
+  /// 광고 준비 상태(상점 버튼용). [preloadAd]가 갱신한다.
+  final ValueNotifier<bool> adReady = ValueNotifier(false);
+
+  bool _adBusy = false;
+  int _adSeq = 0;
 
   /// 스토어에서 받아온 상품 정보. 아직 못 받았으면 비어 있다(상점은 "불러오는 중"을 띄운다).
   final ValueNotifier<List<ProductOffer>> offers = ValueNotifier(const []);
@@ -60,6 +80,62 @@ class Monetization {
     // 지원하지 않는 플랫폼에서도 상품 목록은 채운다 — 스텁이 참고가를 돌려주므로
     // 웹/데스크톱에서 상점 화면을 그대로 확인할 수 있다(상점이 "참고가"라고 표시한다).
     await _refreshOffers();
+
+    try {
+      await rewardedAds.initialize();
+    } on Object {
+      // 광고는 부가 기능 — 초기화 실패로 앱이 멈추면 안 된다.
+    }
+    await preloadAd();
+  }
+
+  /// 다음 보상형 광고를 미리 받아둔다. 실패는 삼키고 [adReady]만 false로 남긴다.
+  Future<void> preloadAd() async {
+    try {
+      await rewardedAds.preload();
+    } on Object {
+      // 무시
+    }
+    if (!_disposed) adReady.value = rewardedAds.isReady;
+  }
+
+  /// "광고 보고 부스트 받기" — **지급이 일어나는 유일한 길.**
+  ///
+  /// 순서: 캡 확인 → 광고 노출(닫힐 때까지 대기) → 결과가 [AdShowResult.rewarded]일 때만
+  /// 지갑에 지급(보상 id로 중복 방지) → 다음 광고 preload.
+  /// 끝까지 안 보고 닫으면 [AdRewardOutcome.dismissed]로 돌아오고 아무것도 주지 않는다.
+  /// 동시에 두 번 불리면 두 번째는 [AdRewardOutcome.busy].
+  Future<AdRewardOutcome> watchAdForBoost({DateTime? now}) async {
+    if (_adBusy) return AdRewardOutcome.busy;
+    _adBusy = true;
+    try {
+      if (!wallet.isLoading && wallet.adRewardsLeftToday(now: now) <= 0) {
+        return AdRewardOutcome.capReached;
+      }
+      final rewardId = 'ad-${DateTime.now().millisecondsSinceEpoch}-${_adSeq++}';
+      AdShowResult r;
+      try {
+        r = await rewardedAds.show();
+      } on Object {
+        r = AdShowResult.failed;
+      }
+      switch (r) {
+        case AdShowResult.rewarded:
+          final granted = await wallet.grantAdReward(rewardId: rewardId, now: now);
+          return granted ? AdRewardOutcome.rewarded : AdRewardOutcome.capReached;
+        case AdShowResult.dismissed:
+          return AdRewardOutcome.dismissed;
+        case AdShowResult.notReady:
+          return AdRewardOutcome.notReady;
+        case AdShowResult.failed:
+          return AdRewardOutcome.failed;
+        case AdShowResult.notSupported:
+          return AdRewardOutcome.notSupported;
+      }
+    } finally {
+      _adBusy = false;
+      unawaited(preloadAd());
+    }
   }
 
   Future<void> _refreshOffers() async {
@@ -95,9 +171,35 @@ class Monetization {
     _disposed = true;
     await _sub?.cancel();
     await purchases.dispose();
+    await rewardedAds.dispose();
     offers.dispose();
+    adReady.dispose();
     wallet.dispose();
   }
+}
+
+/// [Monetization.watchAdForBoost]의 결과 — 상점이 안내 문구를 고르는 기준.
+enum AdRewardOutcome {
+  /// 끝까지 봤고 지급했다.
+  rewarded,
+
+  /// 끝까지 보지 않았다. 지급 없음.
+  dismissed,
+
+  /// 오늘 받을 수 있는 횟수를 다 썼다.
+  capReached,
+
+  /// 광고가 아직 준비되지 않았다.
+  notReady,
+
+  /// 광고 노출 실패.
+  failed,
+
+  /// 이 환경에서는 광고가 없다.
+  notSupported,
+
+  /// 이미 광고가 진행 중이다(더블탭).
+  busy,
 }
 
 /// 위젯 트리에 [Monetization]을 내려보낸다.

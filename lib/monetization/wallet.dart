@@ -13,10 +13,14 @@ import 'wallet_store.dart';
 /// - 환영 지급 3판: **써 보지 않은 아이템은 사지 않는다.** 첫 판부터 효과를 경험시킨다.
 /// - 데일리 없음: 10판이 ₩1,000(한 판 100원)이라 무료 데일리를 주면 살 이유가 사라진다.
 ///   (정책 자체는 남겨 둔다 — 이벤트로 켤 수 있다.)
+/// - 광고 보상 1판 · 하루 2회: 안 살 사람에게서도 매출이 나오는 길이되, **무제한이면
+///   데일리와 똑같이 판매를 죽인다.** 팩(10판)보다 귀찮아야 "귀찮으면 사라"가 성립한다.
 class TokenGrantPolicy {
   const TokenGrantPolicy({
     this.welcome = const {TokenKind.boost: 3},
     this.daily = const {},
+    this.adReward = const {TokenKind.boost: 1},
+    this.adDailyCap = 2,
   });
 
   /// 첫 실행 1회 지급.
@@ -24,6 +28,12 @@ class TokenGrantPolicy {
 
   /// 하루 1회 지급.
   final TokenBundle daily;
+
+  /// 보상형 광고 1회 완주당 지급.
+  final TokenBundle adReward;
+
+  /// 하루에 광고 보상을 받을 수 있는 횟수. 0이면 광고 보상 없음.
+  final int adDailyCap;
 }
 
 /// 내가 가진 토큰.
@@ -83,6 +93,35 @@ class TokenWallet extends ChangeNotifier {
     await _store.save(_data);
     notifyListeners();
     return policy.daily;
+  }
+
+  /// 오늘 받은 광고 보상 횟수(기기 로컬 날짜 기준).
+  int adRewardsToday({DateTime? now}) =>
+      _data.adYmd == _ymd(now ?? DateTime.now()) ? _data.adCount : 0;
+
+  /// 오늘 더 받을 수 있는 광고 보상 횟수.
+  int adRewardsLeftToday({DateTime? now}) =>
+      !_loaded ? 0 : (policy.adDailyCap - adRewardsToday(now: now)).clamp(0, policy.adDailyCap);
+
+  /// 광고 보상 지급 — **광고를 끝까지 본 뒤에만** 부른다.
+  ///
+  /// 이 메서드는 "봤는가"를 판단하지 않는다. 그건 `RewardedAdService.show()`의 몫이고,
+  /// 여기는 (1) 일일 캡, (2) 같은 [rewardId] 중복 지급만 막는다. 하나라도 걸리면 false.
+  Future<bool> grantAdReward({required String rewardId, DateTime? now}) async {
+    if (!_loaded) await load();
+    final today = _ymd(now ?? DateTime.now());
+    if (_data.deliveredAdRewardIds.contains(rewardId)) return false;
+    final count = _data.adYmd == today ? _data.adCount : 0;
+    if (count >= policy.adDailyCap) return false;
+    _data = _data.copyWith(
+      balances: _data.balances.plus(policy.adReward),
+      adYmd: today,
+      adCount: count + 1,
+      deliveredAdRewardIds: [..._data.deliveredAdRewardIds, rewardId],
+    );
+    await _store.save(_data);
+    notifyListeners();
+    return true;
   }
 
   /// 토큰 1개를 쓴다. 잔량이 없으면 false(호출한 쪽이 상점으로 유도한다).

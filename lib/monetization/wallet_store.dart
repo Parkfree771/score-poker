@@ -12,6 +12,9 @@ class WalletData {
     this.lastDailyYmd,
     this.welcomed = false,
     this.deliveredPurchaseIds = const [],
+    this.adYmd,
+    this.adCount = 0,
+    this.deliveredAdRewardIds = const [],
   });
 
   final TokenBundle balances;
@@ -28,17 +31,30 @@ class WalletData {
   /// 배달된다. 이 목록이 없으면 그때마다 토큰을 또 준다.
   final List<String> deliveredPurchaseIds;
 
+  /// 광고 보상을 받은 날짜(yyyymmdd)와 그날 받은 횟수. 날짜가 바뀌면 횟수는 0으로 본다.
+  final int? adYmd;
+  final int adCount;
+
+  /// **이미 지급한 광고 보상 id.** 한 번의 노출은 한 번만 지급한다.
+  final List<String> deliveredAdRewardIds;
+
   WalletData copyWith({
     TokenBundle? balances,
     int? lastDailyYmd,
     bool? welcomed,
     List<String>? deliveredPurchaseIds,
+    int? adYmd,
+    int? adCount,
+    List<String>? deliveredAdRewardIds,
   }) =>
       WalletData(
         balances: balances ?? this.balances,
         lastDailyYmd: lastDailyYmd ?? this.lastDailyYmd,
         welcomed: welcomed ?? this.welcomed,
         deliveredPurchaseIds: deliveredPurchaseIds ?? this.deliveredPurchaseIds,
+        adYmd: adYmd ?? this.adYmd,
+        adCount: adCount ?? this.adCount,
+        deliveredAdRewardIds: deliveredAdRewardIds ?? this.deliveredAdRewardIds,
       );
 
   Map<String, Object?> toJson() => {
@@ -46,6 +62,9 @@ class WalletData {
         'd': lastDailyYmd,
         'w': welcomed,
         'p': deliveredPurchaseIds,
+        'ay': adYmd,
+        'ac': adCount,
+        'ar': deliveredAdRewardIds,
       };
 
   static WalletData fromJson(Map<String, dynamic> json) {
@@ -64,6 +83,11 @@ class WalletData {
       welcomed: json['w'] as bool? ?? false,
       deliveredPurchaseIds: [
         for (final id in (json['p'] as List? ?? const [])) '$id',
+      ],
+      adYmd: json['ay'] as int?,
+      adCount: json['ac'] as int? ?? 0,
+      deliveredAdRewardIds: [
+        for (final id in (json['ar'] as List? ?? const [])) '$id',
       ],
     );
   }
@@ -107,11 +131,16 @@ class WalletStore {
 
   Future<void> _save(WalletData data) async {
     final prefs = await SharedPreferences.getInstance();
-    final trimmed = data.deliveredPurchaseIds.length > maxDeliveredIds
+    var trimmed = data.deliveredPurchaseIds.length > maxDeliveredIds
         ? data.copyWith(
             deliveredPurchaseIds: data.deliveredPurchaseIds
                 .sublist(data.deliveredPurchaseIds.length - maxDeliveredIds))
         : data;
+    if (trimmed.deliveredAdRewardIds.length > maxDeliveredIds) {
+      trimmed = trimmed.copyWith(
+          deliveredAdRewardIds: trimmed.deliveredAdRewardIds
+              .sublist(trimmed.deliveredAdRewardIds.length - maxDeliveredIds));
+    }
     await prefs.setString(_key, jsonEncode(trimmed.toJson()));
   }
 }

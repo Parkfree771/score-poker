@@ -291,13 +291,37 @@
   "@exitGame": {},
   "vlPlacePrompt": "Place 3 cards · tap yours to veil · tap their face-down card to peek",
   "veilChipsMine": "{n, plural, =1{1 veil chip left} other{{n} veil chips left}} — tap your card to veil it, or their face-down card to peek",
-  "@veilChipsMine": {"placeholders": {"n": {"type": "int"}}},
+  "@veilChipsMine": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
   "veilChipsOpp": "{n, plural, =1{Opponent has 1 veil chip left} other{Opponent has {n} veil chips left}}",
-  "@veilChipsOpp": {"placeholders": {"n": {"type": "int"}}},
+  "@veilChipsOpp": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
   "deckRemainingTip": "{n, plural, =1{1 card left in the deck} other{{n} cards left in the deck}}",
-  "@deckRemainingTip": {"placeholders": {"n": {"type": "int"}}},
+  "@deckRemainingTip": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
   "oppHandTip": "{n, plural, =1{Opponent holds 1 card} other{Opponent holds {n} cards}}",
-  "@oppHandTip": {"placeholders": {"n": {"type": "int"}}},
+  "@oppHandTip": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
   "privacyPolicy": "Privacy policy",
   "@privacyPolicy": {},
   "openSourceLicenses": "Open-source licenses",
@@ -357,9 +381,21 @@
   "shopBalanceLabel": "Boosts left",
   "@shopBalanceLabel": {},
   "shopBalanceGames": "{n, plural, =1{1 game} other{{n} games}}",
-  "@shopBalanceGames": {"placeholders": {"n": {"type": "int"}}},
+  "@shopBalanceGames": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
   "shopBoostPackTitle": "{n, plural, =1{Boost · 1 game} other{Boost · {n} games}}",
-  "@shopBoostPackTitle": {"placeholders": {"n": {"type": "int"}}},
+  "@shopBoostPackTitle": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
   "shopPerkChip": "+1 veil chip every game (3 → 4)",
   "@shopPerkChip": {},
   "shopPerkSwap": "Redraw all the cards you were dealt, once per game",
@@ -383,7 +419,13 @@
   "boostTitle": "Start boosted",
   "@boostTitle": {},
   "boostLeft": "{n, plural, =1{1 left} other{{n} left}} · +1 chip, 1 swap",
-  "@boostLeft": {"placeholders": {"n": {"type": "int"}}},
+  "@boostLeft": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
   "boostNone": "No boosts left",
   "@boostNone": {},
   "swapButton": "Swap",
@@ -421,5 +463,53 @@
   "personaJennaLead1": "As calculated. Two lines.",
   "personaJennaLead2": "The odds of a reversal here are low.",
   "personaJennaBehind1": "Small sample size, that's all.",
-  "personaJennaBehind2": "Recalculating. Not lost yet."
+  "personaJennaBehind2": "Recalculating. Not lost yet.",
+  "adCardTitle": "{n, plural, =1{Watch an ad · +1 boost} other{Watch an ad · +{n} boosts}}",
+  "@adCardTitle": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "adCardBody": "Watch a short ad to the end and get 1 boost. Closing it early gives nothing.",
+  "adLeftToday": "Today {left}/{cap}",
+  "@adLeftToday": {
+    "placeholders": {
+      "left": {
+        "type": "int"
+      },
+      "cap": {
+        "type": "int"
+      }
+    }
+  },
+  "adButtonWatch": "Watch ad",
+  "adButtonLoading": "Loading ad…",
+  "adButtonTomorrow": "Come back tomorrow",
+  "adRewarded": "{n, plural, =1{+1 boost added!} other{+{n} boosts added!}}",
+  "@adRewarded": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "adDismissed": "Watch the ad to the end to get the boost.",
+  "adCapReached": "You've claimed today's ad rewards. Come back tomorrow.",
+  "adNotReady": "The ad is still loading. Please try again in a moment.",
+  "adFailed": "Ads can't be loaded right now.",
+  "adNotSupported": "Ads aren't available here.",
+  "adMockLabel": "Test ad · real ads are connected at launch",
+  "adMockBody": "An ad plays here.\nWatch it to the end to earn the reward.",
+  "adMockCountdown": "{s}s left",
+  "@adMockCountdown": {
+    "placeholders": {
+      "s": {
+        "type": "int"
+      }
+    }
+  },
+  "adMockClaim": "Claim reward",
+  "adMockClose": "Close (no reward)"
 }

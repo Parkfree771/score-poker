@@ -19,6 +19,33 @@ class ShopScreen extends StatefulWidget {
 
 class _ShopScreenState extends State<ShopScreen> {
   bool _buying = false;
+  bool _watching = false;
+
+  Future<void> _watchAd(Monetization m) async {
+    if (_watching) return;
+    setState(() => _watching = true);
+    final l10n = AppLocalizations.of(context);
+    try {
+      final r = await m.watchAdForBoost();
+      if (!mounted) return;
+      final msg = switch (r) {
+        AdRewardOutcome.rewarded => l10n.adRewarded(m.policyAdReward),
+        AdRewardOutcome.dismissed => l10n.adDismissed,
+        AdRewardOutcome.capReached => l10n.adCapReached,
+        AdRewardOutcome.notReady => l10n.adNotReady,
+        AdRewardOutcome.failed => l10n.adFailed,
+        AdRewardOutcome.notSupported => l10n.adNotSupported,
+        AdRewardOutcome.busy => null,
+      };
+      if (msg != null) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text(msg)));
+      }
+    } finally {
+      if (mounted) setState(() => _watching = false);
+    }
+  }
 
   Future<void> _buy(Monetization m, Product product) async {
     if (_buying) return;
@@ -87,6 +114,13 @@ class _ShopScreenState extends State<ShopScreen> {
                               ],
                             );
                           },
+                        ),
+                        const SizedBox(height: 12),
+                        _AdRewardCard(
+                          l10n: l10n,
+                          m: m,
+                          busy: _watching || _buying,
+                          onWatch: () => _watchAd(m),
                         ),
                         const SizedBox(height: 18),
                         _Notice(text: l10n.shopConsumableNotice),
@@ -235,6 +269,114 @@ class _OfferCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// "광고 보고 부스트 받기" — 유료 팩의 **대안**이라 팩 아래에, 톤도 한 단계 낮게.
+///
+/// 보여주는 상태는 셋: 오늘 남은 횟수(현황), 광고 준비 여부(버튼 활성), 캡 도달(내일).
+/// 지급 여부는 여기서 판단하지 않는다 — [Monetization.watchAdForBoost]의 결과만 안내한다.
+class _AdRewardCard extends StatelessWidget {
+  const _AdRewardCard({
+    required this.l10n,
+    required this.m,
+    required this.busy,
+    required this.onWatch,
+  });
+
+  final AppLocalizations l10n;
+  final Monetization m;
+  final bool busy;
+  final VoidCallback onWatch;
+
+  @override
+  Widget build(BuildContext context) {
+    if (m.wallet.policy.adDailyCap <= 0) return const SizedBox.shrink();
+    return ListenableBuilder(
+      listenable: Listenable.merge([m.wallet, m.adReady]),
+      builder: (context, _) {
+        final cap = m.wallet.policy.adDailyCap;
+        final left = m.wallet.adRewardsLeftToday();
+        final ready = m.adReady.value;
+        final capped = left <= 0;
+        final String buttonText;
+        if (capped) {
+          buttonText = l10n.adButtonTomorrow;
+        } else if (!ready) {
+          buttonText = l10n.adButtonLoading;
+        } else {
+          buttonText = l10n.adButtonWatch;
+        }
+        return Container(
+          key: const ValueKey('ad-reward-card'),
+          padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
+          decoration: BoxDecoration(
+            color: AppColors.panel,
+            borderRadius: BorderRadius.circular(AppShapes.radius),
+            border: Border.all(color: AppColors.stroke),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.ondemand_video_rounded, size: 20, color: AppColors.goldSoft),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(l10n.adCardTitle(m.policyAdReward),
+                        style: const TextStyle(
+                            color: AppColors.textMain,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800)),
+                  ),
+                  Text(l10n.adLeftToday(left, cap),
+                      key: const ValueKey('ad-left-today'),
+                      style: TextStyle(
+                          color: capped ? AppColors.textMuted : AppColors.goldSoft,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800)),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(l10n.adCardBody,
+                  style: const TextStyle(
+                      color: AppColors.textMuted, fontSize: 12.5, height: 1.4)),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  if (!m.rewardedAds.isSupported)
+                    Expanded(
+                      child: Text(l10n.adMockLabel,
+                          style: const TextStyle(
+                              color: AppColors.textMuted,
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w600)),
+                    )
+                  else
+                    const Spacer(),
+                  OutlinedButton.icon(
+                    key: const ValueKey('ad-watch'),
+                    onPressed: (busy || capped || !ready) ? null : onWatch,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.goldSoft,
+                      side: BorderSide(
+                          color: (capped || !ready)
+                              ? AppColors.stroke
+                              : AppColors.gold.withValues(alpha: 0.8)),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+                    ),
+                    icon: Icon(capped ? Icons.schedule_rounded : Icons.play_arrow_rounded,
+                        size: 18),
+                    label: Text(buttonText,
+                        style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

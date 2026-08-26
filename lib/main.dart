@@ -8,6 +8,7 @@ import 'l10n/app_localizations.dart';
 import 'monetization/monetization.dart';
 import 'ui/home_screen.dart';
 import 'ui/theme.dart';
+import 'ui/widgets/mock_rewarded_ad.dart';
 
 void main() => runApp(const ScorePokerApp());
 
@@ -30,10 +31,21 @@ class _ScorePokerAppState extends State<ScorePokerApp> {
   late final AppSettings _settings = widget.settings ?? AppSettings();
   late final SfxService _sfx = widget.sfx ?? SfxService();
   late final HapticService _haptics = widget.haptics ?? HapticService();
+  final _navigatorKey = GlobalKey<NavigatorState>();
 
   @override
   void initState() {
     super.initState();
+    // 실제 광고 SDK가 붙기 전까지는 스텁에 **목 광고 화면**을 꽂는다. 끝까지 봤을 때만
+    // true를 돌려주고, 지급은 Monetization이 한다(여기서 토큰을 만지지 않는다).
+    final ads = _monetization.rewardedAds;
+    if (ads is StubRewardedAdService && ads.presenter == null && ads.scripted == null) {
+      ads.presenter = () {
+        final nav = _navigatorKey.currentState;
+        if (nav == null) return Future.value(false);
+        return showMockRewardedAd(nav);
+      };
+    }
     // 언어 설정은 첫 프레임에 필요하지만 저장소 읽기가 비동기라 잠깐 늦는다.
     // 그동안은 **기기 언어**로 그려지므로(=locale null) 깜빡임이 사실상 없다.
     // 저장소를 못 읽는 환경(테스트 등)에서도 앱은 떠야 한다 — 실패하면 기본값으로 간다.
@@ -73,6 +85,7 @@ class _ScorePokerAppState extends State<ScorePokerApp> {
             child: AnimatedBuilder(
               animation: _settings,
               builder: (context, _) => MaterialApp(
+                navigatorKey: _navigatorKey,
                 onGenerateTitle: (ctx) => AppLocalizations.of(ctx).appTitle,
                 localizationsDelegates: AppLocalizations.localizationsDelegates,
                 supportedLocales: AppLocalizations.supportedLocales,
