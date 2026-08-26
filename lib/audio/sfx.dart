@@ -30,6 +30,15 @@ enum Sfx {
 
   /// "착" — 날아간 칩이 뒷면을 쳐내는 순간.
   chipFlick('chip_flick', variants: 2, jitter: true),
+
+  /// "슉" — 칩을 던지는 바람소리(`tool/gen_chip_sfx.py`).
+  chipWhoosh('chip_whoosh'),
+
+  /// "팅" — 금속 칩이 카드에 맞는 벨 소리(`tool/gen_chip_sfx.py`).
+  chipTing('chip_ting', variants: 2, jitter: true),
+
+  /// "틱" — 되튄 칩이 테이블에 다시 닿는 작은 소리(`tool/gen_chip_sfx.py`).
+  chipTick('chip_tick', variants: 2, jitter: true),
   win('win'),
   lose('lose');
 

@@ -20,6 +20,7 @@ import 'widgets/board_view.dart';
 import 'widgets/card_back.dart';
 import 'widgets/card_cell.dart';
 import 'widgets/emote_bubble.dart';
+import 'widgets/chip_3d.dart';
 import 'widgets/flying_card.dart';
 import 'widgets/impact_effects.dart';
 import 'widgets/table_decor.dart';
@@ -76,7 +77,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   final Set<(int, int)> _hideMarks = {};
 
   /// 비공개권으로 열어본 칸 → 연 사람. 카드는 앞면이 됐지만 칩은 그 위에 남는다.
-  final Map<(PlayerId, int, int), PlayerId> _peekedBy = {};
 
   /// 열어보기 연출 중(칩 비행) — 중복 탭 방지.
   bool _peeking = false;
@@ -169,7 +169,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   bool get _frozen => widget.initialGame != null;
 
   void _restart() {
-    _peekedBy.clear();
     if (_frozen) return;
     _seq++;
     _ticker?.cancel();
@@ -778,10 +777,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   /// 열어보기 연출 — 세 박자. 유치한 폭발 없이, 소리와 타이밍으로만.
   ///
-  /// 1. **팅**: 레일의 마지막 칩이 제자리에서 튀어 오른다(chipPing).
-  /// 2. **비행**: 그 칩이 상대 칸으로 날아간다(가속, 구르듯 기울며).
-  /// 3. **착**: 닿는 프레임에 뒷면이 쳐내져 날아가고 앞면이 드러난다(chipFlick).
-  ///    칩은 그 카드 위에 남는다([_peekedBy]).
+  /// 1. **슛**: 레일의 마지막 칩이 제자리에서 튀어 오른다(chipFlick).
+  /// 2. **비행**: 3D 칩이 포물선을 그리며 구르듯 날아간다(chipWhoosh).
+  /// 3. **팅**: 닿는 프레임에 금속 벨 소리(chipTing)와 함께 칩이 되튀어 통통 구르다
+  ///    사라지고, 카드는 제자리에서 앞면으로 뒤집힌다. 칩은 남지 않는다.
   ///
   /// 규칙 적용(`g.peek`)은 3에서만 일어난다 — 연출 중 판이 바뀌면(seq) 그냥 접는다.
   Future<void> _peekWithChip({
@@ -798,56 +797,63 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     final chipKey = _chipKeys[(by, filled - 1)];
     final cellKey = _cellKey(target, row, col);
 
-    // 1) 팅
-    _playSfx(Sfx.chipPing);
+    // 1) 슛 — 레일의 마지막 칩이 튀어 오르며 손을 떠난다.
+    _playSfx(Sfx.chipFlick);
     _haptic(Haptic.select);
     await (chipKey?.currentState?.bounce() ??
         Future<void>.delayed(const Duration(milliseconds: 190)));
     if (!mounted || seq != _seq) return;
 
-    // 2) 비행
+    // 2) 비행 — 3D 칩이 포물선으로 구르며 날아간다.
     final from = _rectFor(chipKey), to = _rectFor(cellKey);
     if (from != null && to != null) {
-      final d = to.width * 0.62;
-      await flyChip(
+      _playSfx(Sfx.chipWhoosh);
+      await tossChip(
         overlay: Overlay.of(context),
         vsync: this,
-        from: Rect.fromCenter(center: from.center, width: from.width, height: from.width),
-        to: Rect.fromCenter(center: to.center, width: d, height: d),
+        from: from.center,
+        to: to.center,
+        diameter: to.width * 0.5,
         ring: ring,
       );
     }
     if (!mounted || seq != _seq) return;
 
-    // 3) 착 — 규칙 적용 + 뒷면 녹아웃
-    setState(() {
-      g.peek(by, row, col);
-      _peekedBy[(target, row, col)] = by;
-    });
-    _playSfx(Sfx.chipFlick);
+    // 3) 팅 — 칩이 카드에 부딪혀 되튀어 나가고, 카드는 제자리에서 뒤집힌다.
+    setState(() => g.peek(by, row, col));
+    _playSfx(Sfx.chipTing);
     _haptic(Haptic.shieldLock);
-    if (to != null) {
+    if (from != null && to != null) {
       final overlay = Overlay.of(context);
-      unawaited(poofCard(
+      final travel = to.center - from.center;
+      final dirUnit = travel / travel.distance;
+      unawaited(hitFlash(overlay: overlay, vsync: this, at: to.deflate(to.width * 0.15)));
+      unawaited(sparkBurst(
+          overlay: overlay, vsync: this, at: to.deflate(to.width * 0.3), count: 10));
+      unawaited(flipCardInPlace(
         overlay: overlay,
         vsync: this,
         rect: to,
         card: slot.card,
-        faceDown: true,
-        driftX: by == me ? 0.7 : -0.7,
-        duration: const Duration(milliseconds: 300),
+        dir: by == me ? 1 : -1,
+        kick: dirUnit * (to.width * 0.1),
       ));
-      unawaited(hitFlash(overlay: overlay, vsync: this, at: to));
+      unawaited(ricochetChip3D(
+        overlay: overlay,
+        vsync: this,
+        at: to.center,
+        from: from.center,
+        diameter: to.width * 0.5,
+        ring: ring,
+        onBounce: (_) => _playSfx(Sfx.chipTick),
+      ));
     }
   }
 
-  /// 칸 위에 앉은 칩의 주인 색. 숨긴 카드에는 숨긴 쪽 칩, 열어본 카드에는 연 쪽 칩.
+  /// 칸 위에 앉은 칩의 주인 색. 숨긴(덮인) 카드에만 숨긴 쪽 칩이 앉는다.
   Color? _chipOn(PlayerId owner, int row, int col) {
     final s = g.fields[owner]![row][col];
     if (s == null) return null;
-    if (_peekedBy[(owner, row, col)] case final by?) {
-      return by == me ? AppColors.mePrimary : AppColors.oppPrimary;
-    }
     if (s.faceUp) return null;
     if (owner == me) {
       final veiled = _hideMarks.contains((row, col)) || s.round < g.round || g.revealDone;
