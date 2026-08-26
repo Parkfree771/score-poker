@@ -138,10 +138,11 @@ void main() {
     });
   });
 
-  test('세 기풍 모두 100판을 교착 없이 끝낸다', () {
+  test('모든 기풍이 100판을 교착 없이 끝낸다', () {
+    final n = AiStyle.values.length;
     for (var seed = 0; seed < 100; seed++) {
-      final a = VeiledAi(AiStyle.values[seed % 3], seed: seed);
-      final b = VeiledAi(AiStyle.values[(seed + 1) % 3], seed: seed + 1);
+      final a = VeiledAi(AiStyle.values[seed % n], seed: seed);
+      final b = VeiledAi(AiStyle.values[(seed + 1) % n], seed: seed + 1);
       final g = ScoreGame.deal(seed: seed);
       var guard = 0;
       while (!g.isFinished && ++guard < 20) {

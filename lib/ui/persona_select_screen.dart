@@ -8,7 +8,8 @@ import 'widgets/veil_chip.dart';
 import 'personas.dart';
 import 'theme.dart';
 
-/// AI 대전 상대(페르소나) 선택 화면.
+/// AI 대전 상대(페르소나) 갤러리 — 본선 진입은 랜덤 매칭(`MatchScreen`)이고,
+/// 이 화면은 상대 여섯을 한눈에 보는 도감으로 남겨 둔다(카드·부스트 위젯의 원본).
 /// 캐릭터 카드: 컬러 글로우 배지(로티 반복 재생) + 태그라인 칩 + 기풍 스탯.
 /// 세로 = 카드 3장 세로 스택, 가로 = 3열 + 하단 감정 표현 스트립.
 class PersonaSelectScreen extends StatefulWidget {
@@ -54,11 +55,11 @@ class _PersonaSelectScreenState extends State<PersonaSelectScreen> {
               style: const TextStyle(color: AppColors.textMuted, fontSize: 13, fontWeight: FontWeight.w600)),
         ),
         for (final p in personas) ...[
-          _PersonaCard(l10n: l10n, persona: p, onTap: () => _start(context, p)),
+          PersonaCard(l10n: l10n, persona: p, onTap: () => _start(context, p)),
           const SizedBox(height: 16),
         ],
         const SizedBox(height: 6),
-        _BoostCard(l10n: l10n, enabled: _boost, onChanged: (v) => setState(() => _boost = v)),
+        BoostCard(l10n: l10n, enabled: _boost, onChanged: (v) => setState(() => _boost = v)),
         const SizedBox(height: 14),
         _EmoteStrip(l10n: l10n),
       ],
@@ -75,7 +76,7 @@ class _PersonaSelectScreenState extends State<PersonaSelectScreen> {
             for (var i = 0; i < personas.length; i++) ...[
               if (i > 0) const SizedBox(width: 14),
               Expanded(
-                child: _PersonaCard(
+                child: PersonaCard(
                   l10n: l10n,
                   persona: personas[i],
                   vertical: true,
@@ -86,7 +87,7 @@ class _PersonaSelectScreenState extends State<PersonaSelectScreen> {
           ],
         ),
         const SizedBox(height: 14),
-        _BoostCard(l10n: l10n, enabled: _boost, onChanged: (v) => setState(() => _boost = v)),
+        BoostCard(l10n: l10n, enabled: _boost, onChanged: (v) => setState(() => _boost = v)),
         const SizedBox(height: 14),
         _EmoteStrip(l10n: l10n),
       ],
@@ -105,8 +106,9 @@ class _PersonaSelectScreenState extends State<PersonaSelectScreen> {
   }
 }
 
-class _PersonaCard extends StatelessWidget {
-  const _PersonaCard({
+class PersonaCard extends StatelessWidget {
+  const PersonaCard({
+    super.key,
     required this.l10n,
     required this.persona,
     required this.onTap,
@@ -330,8 +332,8 @@ class _EmoteStrip extends StatelessWidget {
 
 /// 부스트 사용 여부 — 지갑에 남은 판 수를 보여주고 켜고 끈다. 없으면 상점으로 보낸다.
 /// `MonetizationScope`가 없는 환경(단독 위젯 테스트)에서는 그리지 않는다.
-class _BoostCard extends StatelessWidget {
-  const _BoostCard({required this.l10n, required this.enabled, required this.onChanged});
+class BoostCard extends StatelessWidget {
+  const BoostCard({super.key, required this.l10n, required this.enabled, required this.onChanged});
   final AppLocalizations l10n;
   final bool enabled;
   final ValueChanged<bool> onChanged;

@@ -29,23 +29,23 @@ void main() {
   group('기기 언어 자동 감지', () {
     testWidgets('한국어 기기 → 한국어', (tester) async {
       await _pumpApp(tester, deviceLocales: [const Locale('ko')]);
-      expect(find.text('온라인 대전'), findsOneWidget);
+      expect(find.text('사람 vs 사람'), findsOneWidget);
     });
 
     testWidgets('영어 기기 → 영어', (tester) async {
       await _pumpApp(tester, deviceLocales: [const Locale('en')]);
-      expect(find.text('Online Match'), findsOneWidget);
+      expect(find.text('Human vs Human'), findsOneWidget);
     });
 
     testWidgets('지원하지 않는 언어(프랑스어) → 한국어가 아니라 영어로 떨어진다', (tester) async {
       await _pumpApp(tester, deviceLocales: [const Locale('fr')]);
-      expect(find.text('Online Match'), findsOneWidget,
+      expect(find.text('Human vs Human'), findsOneWidget,
           reason: '지원 목록 첫 항목을 그냥 쓰면 프랑스 사용자가 한국어를 보게 된다');
     });
 
     testWidgets('선호 언어 목록을 순서대로 훑는다 (프랑스어 우선, 한국어 차선 → 한국어)', (tester) async {
       await _pumpApp(tester, deviceLocales: [const Locale('fr'), const Locale('ko')]);
-      expect(find.text('온라인 대전'), findsOneWidget);
+      expect(find.text('사람 vs 사람'), findsOneWidget);
     });
   });
 

@@ -107,7 +107,7 @@ final List<ValueDelegate> planetColors = [
   ValueDelegate.color(const ['**', 'outline 9', '**'], value: const Color(0xFFEDEDF2)),
 ];
 
-/// 세 캐릭터 정의. **대사까지 전부 l10n을 거친다** — 예전에는 대사만 한글로 박혀 있어서
+/// 여섯 캐릭터 정의(크로드·헷·제나 + 딥시·그록·미스트). **대사까지 전부 l10n을 거친다** — 예전에는 대사만 한글로 박혀 있어서
 /// 영어 빌드에서 말풍선만 한국어로 떴다. 번역은 캐릭터 톤(정중/까불/분석)을 유지한다.
 List<Persona> buildPersonas(AppLocalizations l10n) => [
       Persona(
@@ -183,6 +183,81 @@ List<Persona> buildPersonas(AppLocalizations l10n) => [
           winGame: [l10n.personaJennaWin1, l10n.personaJennaWin2],
           loseGame: [l10n.personaJennaLose1, l10n.personaJennaLose2],
           drawGame: [l10n.personaJennaDraw1],
+        ),
+      ),
+      Persona(
+        id: 'dipsy',
+        name: l10n.personaDipsyName,
+        tagline: l10n.personaDipsyTagline,
+        desc: l10n.personaDipsyDesc,
+        color: const Color(0xFFE04B3A),
+        badgeBg: const Color(0xFF3A0D0B),
+        asset: 'assets/lottie/persona_star.json',
+        colorOverrides: null, // tool/recolor_lottie.py로 파일에 색을 구워 넣었다
+        pressure: 3,
+        steady: 4,
+        bluff: 1,
+        style: AiStyle.dipsy,
+        lines: PersonaLines(
+          greeting: [l10n.personaDipsyGreeting1, l10n.personaDipsyGreeting2],
+          hide: [l10n.personaDipsyHide1, l10n.personaDipsyHide2],
+          peek: [l10n.personaDipsyPeek1, l10n.personaDipsyPeek2],
+          peeked: [l10n.personaDipsyPeeked1, l10n.personaDipsyPeeked2],
+          lead: [l10n.personaDipsyLead1, l10n.personaDipsyLead2],
+          behind: [l10n.personaDipsyBehind1, l10n.personaDipsyBehind2],
+          winGame: [l10n.personaDipsyWin1, l10n.personaDipsyWin2],
+          loseGame: [l10n.personaDipsyLose1, l10n.personaDipsyLose2],
+          drawGame: [l10n.personaDipsyDraw1],
+        ),
+      ),
+      Persona(
+        id: 'grok',
+        name: l10n.personaGrokName,
+        tagline: l10n.personaGrokTagline,
+        desc: l10n.personaGrokDesc,
+        color: const Color(0xFFA98BFF),
+        badgeBg: const Color(0xFF1C1338),
+        asset: 'assets/lottie/persona_joker.json',
+        colorOverrides: null, // tool/recolor_lottie.py로 파일에 색을 구워 넣었다
+        pressure: 4,
+        steady: 1,
+        bluff: 4,
+        style: AiStyle.grok,
+        lines: PersonaLines(
+          greeting: [l10n.personaGrokGreeting1, l10n.personaGrokGreeting2],
+          hide: [l10n.personaGrokHide1, l10n.personaGrokHide2],
+          peek: [l10n.personaGrokPeek1, l10n.personaGrokPeek2],
+          peeked: [l10n.personaGrokPeeked1, l10n.personaGrokPeeked2],
+          lead: [l10n.personaGrokLead1, l10n.personaGrokLead2],
+          behind: [l10n.personaGrokBehind1, l10n.personaGrokBehind2],
+          winGame: [l10n.personaGrokWin1, l10n.personaGrokWin2],
+          loseGame: [l10n.personaGrokLose1, l10n.personaGrokLose2],
+          drawGame: [l10n.personaGrokDraw1],
+        ),
+      ),
+      Persona(
+        id: 'mist',
+        name: l10n.personaMistName,
+        tagline: l10n.personaMistTagline,
+        desc: l10n.personaMistDesc,
+        color: const Color(0xFF7FB3E6),
+        badgeBg: const Color(0xFF0F1E33),
+        asset: 'assets/lottie/persona_stopwatch.json',
+        colorOverrides: null, // tool/recolor_lottie.py로 파일에 색을 구워 넣었다
+        pressure: 4,
+        steady: 2,
+        bluff: 2,
+        style: AiStyle.mist,
+        lines: PersonaLines(
+          greeting: [l10n.personaMistGreeting1, l10n.personaMistGreeting2],
+          hide: [l10n.personaMistHide1, l10n.personaMistHide2],
+          peek: [l10n.personaMistPeek1, l10n.personaMistPeek2],
+          peeked: [l10n.personaMistPeeked1, l10n.personaMistPeeked2],
+          lead: [l10n.personaMistLead1, l10n.personaMistLead2],
+          behind: [l10n.personaMistBehind1, l10n.personaMistBehind2],
+          winGame: [l10n.personaMistWin1, l10n.personaMistWin2],
+          loseGame: [l10n.personaMistLose1, l10n.personaMistLose2],
+          drawGame: [l10n.personaMistDraw1],
         ),
       ),
     ];

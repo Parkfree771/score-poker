@@ -13,6 +13,7 @@ import 'package:score_poker/l10n/app_localizations_en.dart';
 import 'package:score_poker/l10n/app_localizations_ko.dart';
 import 'package:score_poker/ui/game_screen.dart';
 import 'package:score_poker/ui/home_screen.dart';
+import 'package:score_poker/ui/match_screen.dart';
 import 'package:score_poker/ui/persona_select_screen.dart';
 import 'package:score_poker/ui/personas.dart';
 import 'package:score_poker/data/app_settings.dart';
@@ -233,7 +234,7 @@ void main() {
     await setScreen(tester, _portrait);
     await tester.pumpWidget(_app(const HomeScreen()));
     await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(Icons.public));
+    await tester.tap(find.byIcon(Icons.people_alt_rounded));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 350));
     await expectLater(find.byType(HomeScreen), matchesGoldenFile('goldens/shot_03_home_pvp_comingsoon.png'));
@@ -314,6 +315,28 @@ void main() {
     await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 300)));
     await tester.pump();
   }
+
+  testWidgets('match screen portrait', (tester) async {
+    await setScreen(tester, _portrait);
+    final personas = buildPersonas(await AppLocalizations.delegate.load(const Locale('ko')));
+    await tester.pumpWidget(await _appWithMoney(
+        tester, MatchScreen(fixed: personas[3], searchDuration: Duration.zero)));
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 200));
+    }
+    await pumpLottie(tester);
+    await expectLater(find.byType(MatchScreen), matchesGoldenFile('goldens/shot_17b_match_portrait.png'));
+  });
+
+  testWidgets('match screen searching', (tester) async {
+    await setScreen(tester, _portrait);
+    await tester.pumpWidget(await _appWithMoney(tester, const MatchScreen(seed: 1)));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await pumpLottie(tester);
+    await expectLater(find.byType(MatchScreen), matchesGoldenFile('goldens/shot_17c_match_searching.png'));
+    await tester.pump(const Duration(seconds: 2));
+  });
 
   testWidgets('persona select portrait', (tester) async {
     await setScreen(tester, _portrait);

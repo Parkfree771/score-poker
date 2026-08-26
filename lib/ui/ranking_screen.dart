@@ -21,6 +21,9 @@ class RankingScreen extends StatefulWidget {
 class _RankingScreenState extends State<RankingScreen> {
   RankingData? _data;
 
+  /// 랭킹은 두 판이다 — 사람 vs 사람(온라인, 준비 중) / 사람 vs AI(이 기기의 기록).
+  _RankTab _tab = _RankTab.ai;
+
   @override
   void initState() {
     super.initState();
@@ -42,15 +45,46 @@ class _RankingScreenState extends State<RankingScreen> {
       body: DecoratedBox(
         decoration: const BoxDecoration(gradient: AppColors.bgGradient),
         child: SafeArea(
-          child: data == null
-              ? const Center(child: CircularProgressIndicator())
-              : data.games == 0
-                  ? _EmptyState(l10n: l10n)
-                  : LayoutBuilder(
-                      builder: (context, cons) => cons.maxWidth > cons.maxHeight
-                          ? _landscape(l10n, data)
-                          : _portrait(l10n, data),
-                    ),
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+                child: SegmentedButton<_RankTab>(
+                  segments: [
+                    ButtonSegment(
+                        value: _RankTab.pvp,
+                        icon: const Icon(Icons.people_alt_rounded, size: 16),
+                        label: Text(l10n.rankTabPvp)),
+                    ButtonSegment(
+                        value: _RankTab.ai,
+                        icon: const Icon(Icons.smart_toy, size: 16),
+                        label: Text(l10n.rankTabAi)),
+                  ],
+                  selected: {_tab},
+                  onSelectionChanged: (v) => setState(() => _tab = v.first),
+                  style: SegmentedButton.styleFrom(
+                    foregroundColor: AppColors.textMuted,
+                    selectedForegroundColor: AppColors.ink,
+                    selectedBackgroundColor: AppColors.gold,
+                    side: const BorderSide(color: AppColors.stroke),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: _tab == _RankTab.pvp
+                    ? _PvpComingSoon(l10n: l10n)
+                    : data == null
+                        ? const Center(child: CircularProgressIndicator())
+                        : data.games == 0
+                            ? _EmptyState(l10n: l10n)
+                            : LayoutBuilder(
+                                builder: (context, cons) => cons.maxWidth > cons.maxHeight
+                                    ? _landscape(l10n, data)
+                                    : _portrait(l10n, data),
+                              ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -115,6 +149,35 @@ const _ladderOff = AppColors.gaugeOff;
       RankTier.platinum => (name: l10n.tierPlatinum, color: const Color(0xFF6FD8CC)),
       RankTier.diamond => (name: l10n.tierDiamond, color: const Color(0xFF6FB4F5)),
     };
+
+enum _RankTab { pvp, ai }
+
+/// 사람 vs 사람 랭킹 — 온라인 대전이 열리기 전까지의 자리표시.
+class _PvpComingSoon extends StatelessWidget {
+  const _PvpComingSoon({required this.l10n});
+  final AppLocalizations l10n;
+
+  @override
+  Widget build(BuildContext context) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.people_alt_rounded, size: 48, color: AppColors.textMuted),
+              const SizedBox(height: 14),
+              Text(l10n.rankPvpSoonTitle,
+                  style: const TextStyle(
+                      color: AppColors.textMain, fontSize: 17, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 6),
+              Text(l10n.rankPvpSoonDesc,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: AppColors.textMuted, fontSize: 13, height: 1.4)),
+            ],
+          ),
+        ),
+      );
+}
 
 class _RatingCard extends StatelessWidget {
   const _RatingCard({required this.l10n, required this.data});

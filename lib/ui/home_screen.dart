@@ -5,13 +5,13 @@ import '../data/records_store.dart';
 import '../domain/records.dart';
 import '../l10n/app_localizations.dart';
 import 'how_to_play_screen.dart';
-import 'persona_select_screen.dart';
+import 'match_screen.dart';
 import 'ranking_screen.dart';
 import 'settings_screen.dart';
 import 'shop_screen.dart';
 import 'theme.dart';
 
-/// 메인 메뉴: 모드 선택(온라인 대전 / 싱글 플레이).
+/// 메인 메뉴: 모드 선택(사람 vs AI / 사람 vs 사람).
 /// 랭킹은 오른쪽 위 모서리의 티어 배지로 진입한다.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, this.rankingPreloaded});
@@ -103,12 +103,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     title: l10n.modeSingleTitle,
                     description: l10n.modeSingleDesc,
                     onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(builder: (_) => const PersonaSelectScreen()),
+                      MaterialPageRoute<void>(builder: (_) => const MatchScreen()),
                     ),
                   ),
                   const SizedBox(height: 14),
                   _ModeCard(
-                    icon: Icons.public,
+                    icon: Icons.people_alt_rounded,
                     title: l10n.modePvpTitle,
                     description: l10n.modePvpDesc,
                     badge: l10n.comingSoon,

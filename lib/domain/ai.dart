@@ -14,6 +14,16 @@ enum AiStyle {
 
   /// 제나 — 변칙형. 배치가 튀고, 값어치 없는 카드도 숨겨 허세를 부린다.
   jenna,
+
+  /// 딥시 — 계산형. 효율 우선: 이기는 두 줄을 굳히되 세 번째 줄도 버리지 않고,
+  /// 이득이 확실한 카드만 숨기며 열어보기는 늦게, 정확하게.
+  dipsy,
+
+  /// 그록 — 도발형. 첫 라운드부터 숨기고 곧바로 열어본다. 비공개권을 아끼지 않는다.
+  grok,
+
+  /// 미스트 — 속공형. 두 줄에 빠르게 몰아주고 일찍 숨긴다. 열어보기엔 관심이 적다.
+  mist,
 }
 
 /// 기풍별 행동 계수. 룰은 하나지만 **행동이 다르면 다른 상대로 느껴진다**.
@@ -91,6 +101,39 @@ class AiProfile {
       reserveForPeek: 1,
       peekFromRound: 2,
       peekChance: 0.7,
+    ),
+    AiStyle.dipsy: AiProfile(
+      sacrificeWeakRow: 0.6,
+      balance: 0.6,
+      noise: 0.1,
+      hideFromRound: 1,
+      hideMinGain: 100,
+      bluffChance: 0.1,
+      reserveForPeek: 1,
+      peekFromRound: 2,
+      peekChance: 0.8,
+    ),
+    AiStyle.grok: AiProfile(
+      sacrificeWeakRow: 0.7,
+      balance: 0.3,
+      noise: 0.3,
+      hideFromRound: 0,
+      hideMinGain: 1,
+      bluffChance: 0.35,
+      reserveForPeek: 0,
+      peekFromRound: 1,
+      peekChance: 1.0,
+    ),
+    AiStyle.mist: AiProfile(
+      sacrificeWeakRow: 0.8,
+      balance: 0.2,
+      noise: 0.15,
+      hideFromRound: 0,
+      hideMinGain: 50,
+      bluffChance: 0.2,
+      reserveForPeek: 0,
+      peekFromRound: 1,
+      peekChance: 0.5,
     ),
   };
 }
