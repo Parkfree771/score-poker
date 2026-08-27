@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
 
@@ -5,6 +6,8 @@ import '../data/app_settings.dart';
 import '../data/records_store.dart';
 import '../domain/records.dart';
 import '../l10n/app_localizations.dart';
+import 'fx_lab.dart';
+import 'game_screen.dart';
 import 'how_to_play_screen.dart';
 import 'match_screen.dart';
 import 'ranking_screen.dart';
@@ -59,7 +62,14 @@ class _HomeScreenState extends State<HomeScreen> {
     final l10n = AppLocalizations.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: Text(l10n.appTitle),
+        // 디버그 빌드: 제목을 길게 누르면 연출 실험실(강타·칩 튕김을 버튼으로).
+        title: GestureDetector(
+          onLongPress: kDebugMode
+              ? () => Navigator.of(context).push(MaterialPageRoute<void>(
+                  builder: (_) => GameScreen(initialGame: fxLabState(), fxLab: true)))
+              : null,
+          child: Text(l10n.appTitle),
+        ),
         actions: [
           IconButton(
             tooltip: l10n.settingsTitle,

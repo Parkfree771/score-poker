@@ -13,6 +13,7 @@ import '../domain/records.dart';
 import '../domain/scoring.dart';
 import '../feedback/haptics.dart';
 import '../l10n/app_localizations.dart';
+import 'fx_lab.dart';
 import 'widgets/level_stars.dart';
 import 'hand_text.dart';
 import 'personas.dart';
@@ -43,6 +44,7 @@ class GameScreen extends StatefulWidget {
       this.persona,
       this.initialGame,
       this.boosted = false,
+      this.fxLab = false,
       this.level = 3});
 
   final int? seed;
@@ -59,6 +61,10 @@ class GameScreen extends StatefulWidget {
   /// 테스트·스크린샷 전용 **정지 화면**. 주입하면 딜링 연출·타이머·AI가 돌지 않고
   /// 그 상태 그대로 그려진다(연출 타이머가 없어야 캡처가 재현된다). 기록도 남기지 않는다.
   final ScoreGame? initialGame;
+
+  /// 연출 실험실(디버그) — [initialGame] 위에 강타·칩 연출을 버튼으로 쏘는 패널을 띄운다.
+  /// `fxLabState()`와 함께 쓴다(`fx_lab.dart`).
+  final bool fxLab;
 
   @override
   State<GameScreen> createState() => _GameScreenState();
@@ -572,6 +578,66 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     await _startRound(dealt: dealt);
   }
 
+  // ---- 연출 실험실 (디버그) ----
+
+  bool _labBusy = false;
+
+  /// 판을 고정 상태로 되돌린다 — 매 버튼은 같은 출발점에서 연출을 쏜다.
+  void _labReset() {
+    _seq++;
+    setState(() {
+      g = fxLabState();
+      _hideMarks.clear();
+      _banner = null;
+      selected = null;
+    });
+  }
+
+  Future<void> _labRun(Future<void> Function() body) async {
+    if (_labBusy) return;
+    _labBusy = true;
+    _labReset();
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+    try {
+      if (mounted) await body();
+    } finally {
+      _labBusy = false;
+    }
+  }
+
+  Widget _fxLabPanel() {
+    Widget btn(String label, Future<void> Function() body) => Padding(
+          padding: const EdgeInsets.only(bottom: 4),
+          child: FilledButton.tonal(
+            style: FilledButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 10)),
+            onPressed: () => _labRun(body),
+            child: Text(label, style: const TextStyle(fontSize: 12)),
+          ),
+        );
+    return Material(
+      type: MaterialType.transparency,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          btn('강타 나→상대', () async {
+            g.pendingStrikes[ai]!.clear();
+            await _strikeCeremony(_seq);
+          }),
+          btn('강타 상대→나', () async {
+            g.pendingStrikes[me]!.clear();
+            await _strikeCeremony(_seq);
+          }),
+          btn('강타 둘 다', () => _strikeCeremony(_seq)),
+          btn('칩 나→상대', () => _peekWithChip(by: me, row: 1, col: 1)),
+          btn('칩 상대→나', () => _peekWithChip(by: ai, row: 1, col: 1)),
+          btn('리셋', () async {}),
+        ],
+      ),
+    );
+  }
+
   /// 조커 강타 연출 — 두둥(배너) → 표적 위 번쩍·파편 → 카드가 지정 카드로 바뀐다.
   /// 예고된 강타가 없으면 조용히 정산만 한다. 규칙 적용(`resolveStrike`)은 한 방씩.
   Future<void> _strikeCeremony(int seq) async {
@@ -623,8 +689,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     final done = Completer<void>();
     late OverlayEntry entry;
     entry = OverlayEntry(
-      builder: (context) => IgnorePointer(
-        child: TweenAnimationBuilder<double>(
+      builder: (context) => TweenAnimationBuilder<double>(
           tween: Tween(begin: 0, end: 1),
           duration: const Duration(milliseconds: 1100),
           onEnd: () {
@@ -642,9 +707,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
               top: c.dy - h / 2,
               width: w,
               height: h,
-              child: Opacity(
-                opacity: (enter * (1 - exit * 0.6)).clamp(0.0, 1.0),
-                child: Transform.scale(scale: scale, child: child),
+              child: IgnorePointer(
+                child: Opacity(
+                  opacity: (enter * (1 - exit * 0.6)).clamp(0.0, 1.0),
+                  child: Transform.scale(scale: scale, child: child),
+                ),
               ),
             );
           },
@@ -660,7 +727,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
               child: JokerFace(size: w, as: s.card),
             ),
           ),
-        ),
       ),
     );
     Overlay.of(context).insert(entry);
@@ -1102,6 +1168,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           child: Stack(
             children: [
               landscape ? _landscapeLayout(l10n, size.height) : _portraitLayout(l10n),
+              if (widget.fxLab)
+                Positioned(right: 8, top: landscape ? 60 : 96, child: _fxLabPanel()),
               // 이모트: 바깥 탭으로 닫힘, 말풍선은 아바타 옆 (기존 게임과 동일)
               if (_emoteOpen) ...[
                 Positioned.fill(
