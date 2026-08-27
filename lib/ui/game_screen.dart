@@ -103,6 +103,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   bool _swapping = false;
 
   final Map<(PlayerId, int), GlobalKey<VeilChipState>> _chipKeys = {};
+
+  /// 지금 날아가는 중인 레일 칩(주인, 인덱스). 레일에서는 빈 소켓으로 그린다 —
+  /// 칩이 손을 떠났는데 바닥에 그대로 남아 있으면 "복사본이 날아갔다"로 보인다.
+  (PlayerId, int)? _chipInFlight;
   GlobalKey<VeilChipState> _chipKey(PlayerId p, int i) =>
       _chipKeys.putIfAbsent((p, i), () => GlobalKey<VeilChipState>(debugLabel: 'chip-$p-$i'));
   MatchResult? _result;
@@ -196,6 +200,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       selected = null;
       _flyingHandIndex = null;
       _hideMarks.clear();
+      _chipInFlight = null;
       _result = null;
       _banner = null;
       _dealtMine = 0;
@@ -587,6 +592,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _seq++;
     setState(() {
       g = fxLabState();
+      _chipInFlight = null;
       _hideMarks.clear();
       _banner = null;
       selected = null;
@@ -1095,6 +1101,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     await (chipKey?.currentState?.bounce() ??
         Future<void>.delayed(const Duration(milliseconds: 190)));
     if (!mounted || seq != _seq) return;
+    // 홉이 끝난 프레임에 레일의 칩이 떠난다 — 이후 비행체가 그 칩이다.
+    setState(() => _chipInFlight = (by, filled - 1));
 
     // 2) 비행 — 3D 칩이 포물선으로 구르며 날아간다.
     final from = _rectFor(chipKey), to = _rectFor(cellKey);
@@ -1112,7 +1120,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     if (!mounted || seq != _seq) return;
 
     // 3) 팅 — 칩이 카드에 부딪혀 되튀어 나가고, 카드는 제자리에서 뒤집힌다.
-    setState(() => g.peek(by, row, col));
+    setState(() {
+      g.peek(by, row, col);
+      _chipInFlight = null; // 규칙상 차감됐으니 레일은 이제 스스로 하나 적다.
+    });
     _playSfx(Sfx.chipTing);
     _haptic(Haptic.shieldLock);
     if (from != null && to != null) {
@@ -1352,7 +1363,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     return VeilChip(
       key: _chipKey(mine ? me : ai, i),
       size: size,
-      filled: i < filled,
+      filled: i < filled && _chipInFlight != (mine ? me : ai, i),
       ring: ring,
       label: mine ? l10n.veilChipsMine(filled) : l10n.veilChipsOpp(filled),
       onTap: () => _haptic(Haptic.select),

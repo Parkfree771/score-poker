@@ -362,8 +362,13 @@ class _BoardSlot extends StatelessWidget {
     } else {
       // 덮인 카드는 **그냥 뒷면**이다. 일렁이는 어둠 같은 장식은 없다 — "숨겼다"는
       // 뒷면 + 그 위에 앉은 칩이 말한다. (열 수 있는 카드도 겉모습은 같다.)
+      // 조커가 관여한 앞면 카드(와일드·강타로 바뀐 카드)는 **카드 자체가 조커 얼굴**이다 —
+      // 가운데 광대, 모서리에 그 카드의 숫자·무늬. 작은 배지로 흘리지 않는다.
+      final jokerFace = joker != null && !joker!.pending && look == CellLook.face;
       final content = switch (look) {
-        CellLook.face => cachedCardFace(placed!.card, size),
+        CellLook.face => jokerFace
+            ? JokerFace(size: size, as: placed!.card, animate: false)
+            : cachedCardFace(placed!.card, size),
         CellLook.back ||
         CellLook.backVeiled ||
         CellLook.backPeekable =>
@@ -394,7 +399,7 @@ class _BoardSlot extends StatelessWidget {
           children: [...previous, if (current != null) current],
         ),
         child: FittedBox(
-          key: ValueKey('${look == CellLook.face}-${placed!.card.label}'),
+          key: ValueKey('${look == CellLook.face}-${placed!.card.label}-$jokerFace'),
           fit: BoxFit.fill, // 원비율 카드를 칸 비율로 살짝 스트레치(세로 공간 확보)
           child: SizedBox(
             width: size,
@@ -403,8 +408,9 @@ class _BoardSlot extends StatelessWidget {
           ),
         ),
       );
-      // 칩은 카드 오른쪽 위 모서리에 걸쳐 앉는다. 봉인 지정 순간은 위에서 내려와
-      // 툭 안착(land), 그 외(지난 라운드 숨김·상대 뒷면·열어본 카드)는 그냥 놓여 있다.
+      // 칩은 **카드 한가운데** 크게 앉는다 — 모서리 소품이 아니라 "이 카드는 덮였다"는
+      // 주인공. 봉인 지정 순간은 위에서 내려와 툭 안착(land), 그 외(지난 라운드 숨김·상대
+      // 뒷면·열어본 카드)는 그냥 놓여 있다. 열어본 앞면에서는 살짝 작게(모서리 랭크는 보인다).
       final chipped = chip == null
           ? card
           : Stack(
@@ -413,18 +419,20 @@ class _BoardSlot extends StatelessWidget {
               children: [
                 card,
                 Align(
-                  alignment: const Alignment(0.82, -0.74),
+                  alignment: Alignment.center,
                   child: IgnorePointer(
                     child: ChipBadge(
                         key: ValueKey('chip-${look == CellLook.sealed}'),
-                        size: size * 0.4,
+                        size: size * (look == CellLook.face ? 0.5 : 0.62),
                         ring: chip,
                         land: look == CellLook.sealed),
                   ),
                 ),
               ],
             );
-      final marked = joker == null
+      // 강타 예고(아직 발동 전)는 카드 위에 광대가 크게 떠 있다. 발동된/와일드 앞면은
+      // 카드 자체가 조커 얼굴이라 배지가 없다. 뒷면인 내 와일드는 광대 배지로 표시.
+      final marked = joker == null || jokerFace
           ? chipped
           : withJokerBadge(chipped, cell: size, color: joker!.color, pending: joker!.pending);
       inner = highlighted
