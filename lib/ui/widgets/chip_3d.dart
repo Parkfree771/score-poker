@@ -431,18 +431,22 @@ Future<void> ricochetChip3D({
   required Color ring,
   void Function(int bounce)? onBounce,
   Duration duration = const Duration(milliseconds: 660),
-}) {
+  double side = 0.32, // 되튀는 방향의 옆 성분(+오른쪽/−왼쪽). 두 칩을 다른 각도로 보낼 때.
+  double reach = 1.0, // 튕겨 나가는 거리 배율.
+  Duration delay = Duration.zero, // 출발 지연(두 칩이 같은 프레임에 겹치지 않게).
+}) async {
+  if (delay > Duration.zero) await Future<void>.delayed(delay);
   final back = from - at;
   final ang = math.atan2(back.dy, back.dx);
   final u = back.distance == 0 ? const Offset(0, 1) : back / back.distance;
-  final dirUnit = (u * 0.9 + Offset(-u.dy, u.dx) * 0.32);
+  final dirUnit = (u * 0.9 + Offset(-u.dy, u.dx) * side);
   final d = diameter;
 
   // 구간(ms): 히트스톱 · 바운스1 · 바운스2 · 바운스3 · 정착
   const hold = 45.0, b1 = 240.0, b2 = 140.0, b3 = 90.0;
   final settle = duration.inMilliseconds - hold - b1 - b2 - b3;
   // 각 바운스의 수평 거리·최고 높이
-  final dist = [d * 1.7, d * 0.7, d * 0.3];
+  final dist = [d * 1.7 * reach, d * 0.7 * reach, d * 0.3 * reach];
   final peak = [d * 1.5, d * 0.5, d * 0.16];
   final fired = <int>{};
 

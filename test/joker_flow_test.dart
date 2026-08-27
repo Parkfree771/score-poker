@@ -59,7 +59,7 @@ void main() {
     }
   }
 
-  testWidgets('와일드: 조커를 K♥로 내 판에 놓는다(뒷면·와일드 배지)', (tester) async {
+  testWidgets('와일드: 조커를 K♥로 내 판에 놓는다(뒷면·조커 카드 표시)', (tester) async {
     final g = await pumpGame(tester);
     expect(find.byType(JokerFace), findsNWidgets(2), reason: '손패의 조커 두 장');
 
@@ -85,8 +85,11 @@ void main() {
     expect(slot.wild, isTrue);
     expect(slot.faceUp, isFalse, reason: '와일드도 뒷면으로 놓인다');
     expect(g.leftToPlace(PlayerId.p0), 2, reason: '3장 배치의 하나');
-    expect(find.byType(JokerFace), findsOneWidget, reason: '조커 한 장 남음');
-    expect(find.byType(JokerBadge), findsWidgets, reason: '와일드 배지');
+    // 손패의 조커 1장 + 판 위 와일드 칸(K♥를 든 조커 카드) = 2.
+    final faces = tester.widgetList<JokerFace>(find.byType(JokerFace)).toList();
+    expect(faces.where((f) => f.as == null).length, 1, reason: '조커 한 장 남음');
+    expect(faces.where((f) => f.as == const PlayingCard(13, Suit.hearts)).length, 1,
+        reason: '와일드 칸은 K♥ 모서리를 단 조커 카드');
   });
 
   testWidgets('강타: 상대 숨긴 카드를 2♣로 예고하고, 다시 탭하면 물린다', (tester) async {
@@ -106,10 +109,10 @@ void main() {
     expect(g.pendingStrikes[PlayerId.p0]!.length, 1, reason: '강타 예고');
     expect(g.leftToPlace(PlayerId.p0), 3, reason: '강타는 배치 수를 안 먹는다');
     expect(g.fields[PlayerId.p1]![1][0]!.faceUp, isFalse, reason: '발동 전엔 그대로');
-    expect(find.byType(JokerFace), findsOneWidget, reason: '조커 한 장은 상대 카드 위로 갔다');
-    expect(
-        tester.widgetList<JokerBadge>(find.byType(JokerBadge)).where((b) => b.pending).length, 1,
-        reason: '예고 배지');
+    final faces = tester.widgetList<JokerFace>(find.byType(JokerFace)).toList();
+    expect(faces.where((f) => f.as == null).length, 1, reason: '조커 한 장은 상대 카드 위로 갔다');
+    expect(faces.where((f) => f.as == const PlayingCard(2, Suit.clubs)).length, 1,
+        reason: '예고된 칸은 2♣ 모서리를 단 조커 카드');
 
     // 물리기.
     await tester.tap(labeled('cell-p1-1-0'), warnIfMissed: false);

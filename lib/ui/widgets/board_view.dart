@@ -30,9 +30,11 @@ import 'veil_chip.dart' show ChipBadge;
 enum CellLook { face, back, backVeiled, backPeekable, peek, sealed }
 
 /// 칸 위 조커 배지: [color]는 조커 주인(나/상대) 색, [pending]은 강타 예고(아직 발동 전).
+/// 칸 위 조커: [card]는 그 조커가 "되는" 카드(와일드 지정/강타 지정). 칸은 손패의 조커
+/// 카드 그대로 그려지고 모서리만 그 숫자·무늬가 된다 — 색 테두리·배지 같은 장식은 없다.
 class JokerMark {
-  const JokerMark(this.color, {this.pending = false});
-  final Color color;
+  const JokerMark(this.card, {this.pending = false});
+  final PlayingCard card;
   final bool pending;
 }
 
@@ -362,13 +364,13 @@ class _BoardSlot extends StatelessWidget {
     } else {
       // 덮인 카드는 **그냥 뒷면**이다. 일렁이는 어둠 같은 장식은 없다 — "숨겼다"는
       // 뒷면 + 그 위에 앉은 칩이 말한다. (열 수 있는 카드도 겉모습은 같다.)
-      // 조커가 관여한 앞면 카드(와일드·강타로 바뀐 카드)는 **카드 자체가 조커 얼굴**이다 —
-      // 가운데 광대, 모서리에 그 카드의 숫자·무늬. 작은 배지로 흘리지 않는다.
-      final jokerFace = joker != null && !joker!.pending && look == CellLook.face;
-      final content = switch (look) {
-        CellLook.face => jokerFace
-            ? JokerFace(size: size, as: placed!.card, animate: false)
-            : cachedCardFace(placed!.card, size),
+      // 조커가 관여한 칸(강타 예고·와일드·강타로 바뀐 카드)은 **손패의 조커 카드 그대로**
+      // 그린다 — 가운데 광대, 모서리만 그 카드의 숫자·무늬. 배지·색 테두리 같은 건 없다.
+      final jokerFace = joker != null;
+      final content = jokerFace
+          ? JokerFace(size: size, as: joker!.card, animate: false)
+          : switch (look) {
+        CellLook.face => cachedCardFace(placed!.card, size),
         CellLook.back ||
         CellLook.backVeiled ||
         CellLook.backPeekable =>
@@ -430,11 +432,7 @@ class _BoardSlot extends StatelessWidget {
                 ),
               ],
             );
-      // 강타 예고(아직 발동 전)는 카드 위에 광대가 크게 떠 있다. 발동된/와일드 앞면은
-      // 카드 자체가 조커 얼굴이라 배지가 없다. 뒷면인 내 와일드는 광대 배지로 표시.
-      final marked = joker == null || jokerFace
-          ? chipped
-          : withJokerBadge(chipped, cell: size, color: joker!.color, pending: joker!.pending);
+      final marked = chipped;
       inner = highlighted
           ? Stack(
               fit: StackFit.expand,

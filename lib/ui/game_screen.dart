@@ -1141,6 +1141,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         dir: by == me ? 1 : -1,
         kick: dirUnit * (to.width * 0.1),
       ));
+      // 날아온 칩과 카드 위에 앉아 있던 칩이 **둘 다** 날아온 반대쪽으로 튕겨 나간다 —
+      // 하나는 왼쪽으로 비껴, 하나는 오른쪽으로 더 멀리. 같은 각도면 한 장으로 보인다.
       unawaited(ricochetChip3D(
         overlay: overlay,
         vsync: this,
@@ -1148,7 +1150,19 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         from: from.center,
         diameter: to.width * 0.5,
         ring: ring,
+        side: 0.32,
         onBounce: (_) => _playSfx(Sfx.chipTick),
+      ));
+      unawaited(ricochetChip3D(
+        overlay: overlay,
+        vsync: this,
+        at: to.center,
+        from: from.center,
+        diameter: to.width * 0.5,
+        ring: target == me ? AppColors.mePrimary : AppColors.oppPrimary,
+        side: -0.55,
+        reach: 1.3,
+        delay: const Duration(milliseconds: 25),
       ));
     }
   }
@@ -1541,21 +1555,17 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         landscape: landscape,
       );
 
-  /// 조커 배지: 강타 예고(상대가 노리는 내 카드 / 내가 노리는 상대 카드)는 떠 있는 배지,
-  /// 와일드·강타로 바뀐 카드는 앉은 배지. 상대의 와일드는 공개된 뒤에만 보인다.
+  /// 조커 칸: 강타 예고(상대가 노리는 내 카드 / 내가 노리는 상대 카드)는 지정 카드를 든
+  /// 조커, 와일드·강타로 바뀐 카드는 그 카드를 든 조커. 상대의 와일드는 공개된 뒤에만 보인다.
   JokerMark? _jokerOn(PlayerId owner, int row, int col) {
     final attacker = owner.other;
-    if (g.pendingStrikes[attacker]!.any((s) => s.row == row && s.col == col)) {
-      return JokerMark(attacker == me ? AppColors.mePrimary : AppColors.oppPrimary, pending: true);
+    for (final st in g.pendingStrikes[attacker]!) {
+      if (st.row == row && st.col == col) return JokerMark(st.card, pending: true);
     }
     final s = g.fields[owner]![row][col];
     if (s == null) return null;
-    if (s.strikeBy != null) {
-      return JokerMark(s.strikeBy == me ? AppColors.mePrimary : AppColors.oppPrimary);
-    }
-    if (s.wild && (owner == me || s.faceUp)) {
-      return JokerMark(owner == me ? AppColors.mePrimary : AppColors.oppPrimary);
-    }
+    if (s.strikeBy != null) return JokerMark(s.card);
+    if (s.wild && (owner == me || s.faceUp)) return JokerMark(s.card);
     return null;
   }
 

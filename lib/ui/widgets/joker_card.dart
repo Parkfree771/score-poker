@@ -176,18 +176,3 @@ class JokerBack extends StatelessWidget {
     );
   }
 }
-
-/// 광대 배지를 카드 한가운데 크게 얹는다(강타 예고 / 뒷면인 내 와일드).
-Widget withJokerBadge(Widget card, {required double cell, required Color color, bool pending = false}) {
-  return Stack(
-    fit: StackFit.expand,
-    clipBehavior: Clip.none,
-    children: [
-      card,
-      Align(
-        alignment: Alignment.center,
-        child: IgnorePointer(child: JokerBadge(size: cell * 0.6, color: color, pending: pending)),
-      ),
-    ],
-  );
-}
