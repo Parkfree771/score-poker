@@ -19,12 +19,13 @@ import 'personas.dart';
 import 'theme.dart';
 import 'widgets/board_view.dart';
 import 'widgets/card_back.dart';
+import 'widgets/card_face.dart';
 import 'widgets/card_cell.dart';
 import 'widgets/emote_bubble.dart';
 import 'widgets/chip_3d.dart';
 import 'widgets/flying_card.dart';
 import 'widgets/impact_effects.dart';
-import 'widgets/joker_card.dart' show JokerColors;
+import 'widgets/joker_card.dart' show JokerColors, JokerFace;
 import 'widgets/joker_picker.dart';
 import 'widgets/table_decor.dart';
 import 'widgets/veil_chip.dart';
@@ -590,6 +591,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     for (final s in strikes) {
       await Future<void>.delayed(const Duration(milliseconds: 260));
       if (!mounted || seq != _seq) return;
+      // 화면 가운데 조커가 크게 떠서 붕붕 뛰고, 코너에 "무엇이 되는지"(숫자·무늬)가 보인다.
+      await _strikeShowcase(s);
+      if (!mounted || seq != _seq) return;
       final rect = _rectFor(_cellKey(s.by.other, s.row, s.col));
       if (rect != null) {
         final overlay = Overlay.of(context);
@@ -604,6 +608,65 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     }
     if (!mounted || seq != _seq) return;
     if (struckMine) _snack(l10n.vlOppStruck);
+  }
+
+  /// 강타 쇼케이스 — 화면 가운데 큰 조커 카드(로티 재생, 코너 = 지정 카드)가 튀어나와
+  /// 잠깐 머물다 사라진다. 등장 오버슛 → 유지 → 표적 쪽으로 작아지며 퇴장(≈1.1s).
+  Future<void> _strikeShowcase(JokerStrike s) async {
+    final size = MediaQuery.sizeOf(context);
+    const w = 150.0;
+    final h = CardFace.heightFor(w);
+    final target = _rectFor(_cellKey(s.by.other, s.row, s.col));
+    final origin = Offset(size.width / 2, size.height * 0.42);
+    final dest = target?.center ?? origin;
+    final color = s.by == me ? AppColors.mePrimary : AppColors.oppPrimary;
+    final done = Completer<void>();
+    late OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (context) => IgnorePointer(
+        child: TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0, end: 1),
+          duration: const Duration(milliseconds: 1100),
+          onEnd: () {
+            entry.remove();
+            if (!done.isCompleted) done.complete();
+          },
+          builder: (context, t, child) {
+            // 0~0.18 등장(오버슛) · 0.18~0.78 유지 · 0.78~1 표적으로 빨려 들어감.
+            final enter = Curves.easeOutBack.transform((t / 0.18).clamp(0.0, 1.0));
+            final exit = t < 0.78 ? 0.0 : Curves.easeInCubic.transform((t - 0.78) / 0.22);
+            final c = Offset.lerp(origin, dest, exit)!;
+            final scale = enter * (1 - 0.8 * exit);
+            return Positioned(
+              left: c.dx - w / 2,
+              top: c.dy - h / 2,
+              width: w,
+              height: h,
+              child: Opacity(
+                opacity: (enter * (1 - exit * 0.6)).clamp(0.0, 1.0),
+                child: Transform.scale(scale: scale, child: child),
+              ),
+            );
+          },
+          child: Material(
+            type: MaterialType.transparency,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(w * 0.16),
+                boxShadow: [
+                  BoxShadow(color: color.withValues(alpha: 0.55), blurRadius: 28, spreadRadius: 2),
+                ],
+              ),
+              child: JokerFace(size: w, as: s.card),
+            ),
+          ),
+        ),
+      ),
+    );
+    Overlay.of(context).insert(entry);
+    _playSfx(Sfx.cardSlide);
+    _haptic(Haptic.select);
+    await done.future;
   }
 
   /// 줄별 판정 세리머니 — 첫째 줄부터 차례로, 공개된 정보 기준의

@@ -24,6 +24,7 @@ import 'package:score_poker/ui/settings_screen.dart';
 import 'package:score_poker/ui/shop_screen.dart';
 import 'package:score_poker/ui/widgets/celebration.dart';
 import 'package:score_poker/ui/theme.dart';
+import 'package:score_poker/ui/widgets/joker_card.dart';
 import 'package:score_poker/ui/widgets/board_view.dart';
 import 'package:score_poker/ui/widgets/card_back.dart';
 import 'package:score_poker/ui/widgets/card_face.dart';
@@ -370,6 +371,20 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/shot_44_joker_picker.png'));
+  });
+
+  testWidgets('joker strike showcase card', (tester) async {
+    // 강타 연출에서 화면 가운데 크게 뜨는 조커 — 코너에 지정 카드(♥A)의 숫자·무늬.
+    await setScreen(tester, _portrait);
+    await tester.pumpWidget(_app(Scaffold(
+      backgroundColor: AppColors.feltA,
+      body: Center(
+        child: JokerFace(size: 150, as: PlayingCard(Ranks.ace, Suit.hearts)),
+      ),
+    )));
+    await tester.pump();
+    await pumpLottie(tester);
+    await expectLater(find.byType(Scaffold), matchesGoldenFile('goldens/shot_45_joker_showcase.png'));
   });
 
   testWidgets('match screen portrait', (tester) async {

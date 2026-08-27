@@ -2,7 +2,10 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:lottie/lottie.dart';
 
+import '../../domain/card.dart';
+import '../theme.dart';
 import 'card_back.dart';
 import 'card_face.dart';
 import 'suit_glyphs.dart';
@@ -17,59 +20,93 @@ class JokerColors {
   static const lime = Color(0xFFC6F135);
 }
 
-/// 손패의 조커 카드. 카드 프레임은 다른 카드와 같고, 안쪽이 보라 바탕 + 회전하는
-/// 금빛 별 + "JOKER" 글자다. 크기는 [CardFace]와 같은 규칙([CardFace.heightFor]).
+/// 손패의 조커 카드. **일반 카드와 같은 크림 카드**에 가운데 무늬만 광대 로티
+/// (사용자 lottie 폴더 `wired-lineal-1451-card-joker`, 원본 색)로 바꾼 것이다.
+/// 코너는 "JOKER" — [as]를 주면 그 카드의 숫자·무늬가 코너에 들어간다(강타 연출용:
+/// "이 조커가 ♥A가 된다"). 크기는 [CardFace]와 같은 규칙([CardFace.heightFor]).
 class JokerFace extends StatelessWidget {
-  const JokerFace({super.key, required this.size});
+  const JokerFace({super.key, required this.size, this.as, this.animate = true});
 
   final double size;
+  final PlayingCard? as;
+  final bool animate;
 
   @override
   Widget build(BuildContext context) {
     final w = size, h = CardFace.heightFor(size);
+    final target = as;
+    final ink = target == null
+        ? AppColors.dark
+        : (suitIsRed(target.suit) ? AppColors.red : AppColors.dark);
     return SizedBox(
       width: w,
       height: h,
       child: Stack(
         children: [
           Positioned.fill(
-            child: SvgPicture(cardFrameLoader('#2e1348'), fit: BoxFit.fill),
-          ),
-          // 프레임 안쪽 보라 면.
-          Positioned.fill(
             child: Padding(
-              padding: EdgeInsets.all(w * 0.11),
+              padding: EdgeInsets.all(w * 0.04),
               child: DecoratedBox(
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(w * 0.1),
-                  gradient: const LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [JokerColors.purple, JokerColors.purpleDeep],
-                  ),
+                  borderRadius: BorderRadius.circular(w * 0.16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.ink.withValues(alpha: 0.16),
+                      blurRadius: w * 0.09,
+                      offset: Offset(0, w * 0.045),
+                    ),
+                  ],
                 ),
               ),
             ),
           ),
-          Align(
-            alignment: const Alignment(0, -0.18),
-            child: CustomPaint(
-              size: Size(w * 0.5, w * 0.5),
-              painter: const _StarPainter(JokerColors.gold, JokerColors.lime),
-            ),
+          Positioned.fill(
+            child: SvgPicture(cardFrameLoader('#121330'), fit: BoxFit.fill),
           ),
           Align(
-            alignment: const Alignment(0, 0.66),
-            child: Text('JOKER',
-                style: TextStyle(
-                    color: JokerColors.gold,
-                    fontWeight: FontWeight.w900,
-                    fontSize: w * 0.17,
-                    letterSpacing: w * 0.012,
-                    height: 1)),
+            alignment: const Alignment(0, -0.02),
+            child: SizedBox(
+              width: w * 0.64,
+              height: w * 0.64,
+              child: Lottie.asset(
+                'assets/lottie/joker_card.json',
+                animate: animate,
+                repeat: true,
+                fit: BoxFit.contain,
+              ),
+            ),
+          ),
+          Positioned(left: w * 0.13, top: h * 0.04, child: _corner(ink, w)),
+          Positioned(
+            right: w * 0.13,
+            bottom: h * 0.04,
+            child: Transform.rotate(angle: math.pi, child: _corner(ink, w)),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _corner(Color ink, double w) {
+    final target = as;
+    if (target == null) {
+      return Text('JOKER',
+          style: TextStyle(
+              color: ink, fontWeight: FontWeight.w900, fontSize: w * 0.13, height: 1));
+    }
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(rankLabel(target.rank),
+            style: TextStyle(
+                color: ink, fontWeight: FontWeight.w800, fontSize: w * 0.27, height: 1)),
+        SizedBox(
+          width: w * 0.19,
+          height: w * 0.19,
+          child: SvgPicture(suitLoader(target.suit), fit: BoxFit.contain),
+        ),
+      ],
     );
   }
 }

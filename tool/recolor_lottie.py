@@ -13,7 +13,7 @@ OUT = os.path.join(os.path.dirname(__file__), '..', 'assets', 'lottie')
 def hx(k): return '#%02x%02x%02x' % tuple(int(round(v * 255)) for v in k[:3])
 def rgb(h): return [int(h[i:i + 2], 16) / 255 for i in (1, 3, 5)] + [1]
 
-def recolor(src, dst, palette, glyph=None):
+def recolor(src, dst, palette, glyph=None, tweak=None):
     d = json.load(open(SRC + src, encoding='utf-8'))
     def walk(o):
         if isinstance(o, dict):
@@ -30,6 +30,7 @@ def recolor(src, dst, palette, glyph=None):
         elif isinstance(o, list):
             for v in o: walk(v)
     walk(d)
+    if tweak: tweak(d)
     json.dump(d, open(os.path.join(OUT, dst), 'w', encoding='utf-8'), separators=(',', ':'))
     print('wrote', dst)
 
@@ -49,6 +50,8 @@ recolor('wired-lineal-1451-card-joker-hover-pinch.json', 'persona_joker.json', {
     ('#f24c00', 'fl'): '#7c4dff', ('#ffc738', 'fl'): '#c6f135', ('#ebe6ef', 'fl'): '#f0ead6',
     ('#3a3347', 'fl'): '#2b1b5a', ('#121331', '*'): '#1a1030',
 })
+# 손패 조커 카드 문양: 원본 색 그대로(크림 카드 위 주황·노랑 광대 — 카드 팔레트 밖의 유일한 색)
+recolor('wired-lineal-1451-card-joker-hover-pinch.json', 'joker_card.json', {})
 # 미스트: 스톱워치 — 강청 몸통 + 얼음빛 문자판 + 오렌지 버튼/바늘
 recolor('wired-lineal-46-timer-stopwatch-hover-start.json', 'persona_stopwatch.json', {
     ('#f24c00', 'fl'): '#ff7a1a', ('#ebe6ef', 'fl'): '#eaf2ff', ('#3a3347', 'fl'): '#3d6fa3',
