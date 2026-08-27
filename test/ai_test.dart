@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:score_poker/domain/ai.dart';
+import 'package:score_poker/domain/card.dart';
 import 'package:score_poker/domain/game.dart';
+import 'package:score_poker/domain/scoring.dart';
 
 /// 페르소나 AI는 **같은 룰을 다르게 둔다**. 여기서 지키는 것은 "누가 더 세냐"가 아니라
 /// 기풍이 실제 행동으로 나타나는가다 — 성격이 안 드러나면 상대 셋이 다 같은 상대다.
@@ -162,5 +164,122 @@ void main() {
       g.revealAll();
       g.judge();
     }
+  });
+  group('레벨', () {
+    /// 한 판을 끝까지 둔다(숨기기·열어보기 포함). p0 기준 결과.
+    MatchOutcome play(VeiledAi a, VeiledAi b, int seed) {
+      final g = ScoreGame.deal(seed: seed);
+      while (!g.isFinished) {
+        for (final (p, ai) in [(PlayerId.p0, a), (PlayerId.p1, b)]) {
+          final j = ai.jokerMove(g, p);
+          if (j == null) continue;
+          if (j.strike) {
+            g.declareStrike(p, j.handIndex, j.row, j.col, j.card);
+          } else {
+            g.placeWild(p, j.handIndex, j.row, j.col, j.card);
+          }
+        }
+        placeRound(g, PlayerId.p0, a);
+        placeRound(g, PlayerId.p1, b);
+        g.reveal({PlayerId.p0: a.hides(g, PlayerId.p0), PlayerId.p1: b.hides(g, PlayerId.p1)});
+        for (final (p, ai) in [(PlayerId.p0, a), (PlayerId.p1, b)]) {
+          final t = ai.peek(g, p);
+          if (t != null) g.peek(p, t.$1, t.$2);
+        }
+        if (!g.isFinished) g.nextRound();
+      }
+      g.revealAll();
+      return g.judge().outcome;
+    }
+
+    test('5레벨이 1레벨을 확실히 더 많이 이긴다(자리 바꿔 40판)', () {
+      var hi = 0, lo = 0;
+      for (var seed = 0; seed < 40; seed++) {
+        final style = AiStyle.values[seed % AiStyle.values.length];
+        final swap = seed.isOdd;
+        final a = VeiledAi(style, level: swap ? 1 : 5, seed: seed);
+        final b = VeiledAi(style, level: swap ? 5 : 1, seed: seed + 7);
+        final o = play(a, b, seed);
+        if (o == (swap ? MatchOutcome.lose : MatchOutcome.win)) hi++;
+        if (o == (swap ? MatchOutcome.win : MatchOutcome.lose)) lo++;
+      }
+      expect(hi, greaterThan(lo + 6), reason: '5레벨 $hi승 / 1레벨 $lo승');
+    });
+
+    test('5레벨이어도 기풍은 남는다 — 헷이 크로드보다 편중', () {
+      var clodeSpread = 0, hetSpread = 0;
+      for (var seed = 0; seed < 12; seed++) {
+        for (final style in [AiStyle.clode, AiStyle.het]) {
+          final g = ScoreGame.deal(seed: seed);
+          final ai = VeiledAi(style, level: 5, seed: seed);
+          for (var r = 0; r < 3; r++) {
+            placeRound(g, PlayerId.p0, ai);
+            placeRound(g, PlayerId.p1, VeiledAi(AiStyle.clode, level: 2, seed: 99));
+            g.reveal(const {});
+            g.nextRound();
+          }
+          final counts = [
+            for (final row in g.fields[PlayerId.p0]!) row.where((s) => s != null).length,
+          ]..sort();
+          if (style == AiStyle.clode) {
+            clodeSpread += counts.last - counts.first;
+          } else {
+            hetSpread += counts.last - counts.first;
+          }
+        }
+      }
+      expect(hetSpread, greaterThan(clodeSpread),
+          reason: '헷($hetSpread)이 크로드($clodeSpread)보다 편중돼야 한다');
+    });
+
+    test('높은 레벨은 굳은 줄엔 비공개권을 안 쓴다(승패 갈리는 줄만 연다)', () {
+      // 4레벨: smartPeek. 숨긴 카드가 있어도 그 줄 승률이 한쪽으로 기울면 null.
+      final g = ScoreGame.deal(seed: 3);
+      final filler = VeiledAi(AiStyle.clode, level: 2, seed: 3);
+      placeRound(g, PlayerId.p0, filler);
+      placeRound(g, PlayerId.p1, filler);
+      final hidden = g.placedThisRound(PlayerId.p1).first;
+      g.reveal({PlayerId.p1: {hidden}});
+      g.nextRound();
+      final ai = VeiledAi(AiStyle.grok, level: 4, seed: 1); // 그록: peekChance 1.0
+      final t = ai.peek(g, PlayerId.p0);
+      // 결과는 판에 따라 null(굳은 줄)이거나 숨긴 카드 자체여야 한다 — 다른 칸을 열진 않는다.
+      expect(t == null || t == hidden, isTrue);
+    });
+  });
+  group('조커', () {
+    test('낮은 레벨은 조커를 받자마자 와일드로, 높은 레벨은 이득이 커야 쓴다', () {
+      final g = ScoreGame.deal(seed: 11);
+      g.hands[PlayerId.p0]!.insert(0, const PlayingCard.joker());
+      final low = VeiledAi(AiStyle.clode, level: 1, seed: 1).jokerMove(g, PlayerId.p0);
+      expect(low, isNotNull);
+      expect(low!.strike, isFalse);
+      expect(low.card.isJoker, isFalse);
+      // 판이 비어 있으면 강타할 표적이 없고 와일드 이득도 작다 — 5레벨은 아낀다.
+      final high = VeiledAi(AiStyle.clode, level: 5, seed: 1).jokerMove(g, PlayerId.p0);
+      expect(high == null || !high.strike, isTrue);
+    });
+
+    test('5레벨은 상대의 완성된 줄을 강타해 붕괴시킨다', () {
+      final g = ScoreGame.deal(seed: 12);
+      for (var c = 0; c < 5; c++) {
+        g.fields[PlayerId.p1]![0][c] = VeiledSlot(
+            PlayingCard(c < 4 ? 13 : 9, Suit.values[c % 4]), round: 0, faceUp: true);
+      }
+      g.hands[PlayerId.p0]!.insert(0, const PlayingCard.joker());
+      final m = VeiledAi(AiStyle.dipsy, level: 5, seed: 1).jokerMove(g, PlayerId.p0);
+      expect(m, isNotNull);
+      expect(m!.strike, isTrue);
+      expect(m.row, 0);
+      expect(m.card.rank, lessThan(13));
+    });
+
+    test('배치 계획은 조커를 건너뛴다', () {
+      final g = ScoreGame.deal(seed: 13);
+      g.hands[PlayerId.p0]!.insert(0, const PlayingCard.joker());
+      final plan = VeiledAi(AiStyle.het, level: 3, seed: 1).plan(g, PlayerId.p0);
+      expect(plan.length, 3);
+      expect(plan.any((m) => g.hands[PlayerId.p0]![m.handIndex].isJoker), isFalse);
+    });
   });
 }

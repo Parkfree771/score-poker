@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lottie/lottie.dart';
 
 import '../data/app_settings.dart';
 import '../data/records_store.dart';
@@ -99,7 +100,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 28),
                   // 지금 할 수 있는 것이 첫 번째. 온라인은 출시 전이라 '준비 중'을 붙인다.
                   _ModeCard(
-                    icon: Icons.smart_toy,
+                    asset: 'assets/lottie/mode_ai.json',
+                    glow: const Color(0xFF2F9EA8),
                     title: l10n.modeSingleTitle,
                     description: l10n.modeSingleDesc,
                     onTap: () => Navigator.of(context).push(
@@ -108,7 +110,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(height: 14),
                   _ModeCard(
-                    icon: Icons.people_alt_rounded,
+                    asset: 'assets/lottie/mode_human.json',
+                    glow: AppColors.gold,
                     title: l10n.modePvpTitle,
                     description: l10n.modePvpDesc,
                     badge: l10n.comingSoon,
@@ -218,14 +221,19 @@ class _RankingBadgeState extends State<_RankingBadge> {
 
 class _ModeCard extends StatelessWidget {
   const _ModeCard({
-    required this.icon,
+    required this.asset,
+    required this.glow,
     required this.title,
     required this.description,
     required this.onTap,
     this.badge,
   });
 
-  final IconData icon;
+  /// 모드 로티(doodle-motif 재채색 — AI는 차가운 시안 회로, 사람은 따뜻한 브라스).
+  final String asset;
+
+  /// 아이콘 뒤 은은한 원 배경색.
+  final Color glow;
   final String title;
   final String description;
   final VoidCallback onTap;
@@ -241,7 +249,17 @@ class _ModeCard extends StatelessWidget {
       child: Card(
         child: ListTile(
           contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-          leading: Icon(icon, size: 36),
+          leading: Container(
+            width: 56,
+            height: 56,
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Color.alphaBlend(glow.withValues(alpha: 0.18), AppColors.panel),
+              border: Border.all(color: glow.withValues(alpha: 0.55), width: 1.2),
+            ),
+            child: Lottie.asset(asset, repeat: true, fit: BoxFit.contain),
+          ),
           title: Row(
             children: [
               Flexible(

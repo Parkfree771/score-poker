@@ -67,6 +67,12 @@ class RulesScreen extends StatelessWidget {
                     accent: AppColors.gold,
                   ),
                   _Section(
+                    icon: Icons.auto_awesome_rounded,
+                    title: l10n.rulesJokerTitle,
+                    body: l10n.rulesJokerBody,
+                    accent: const Color(0xFFF2CC5A),
+                  ),
+                  _Section(
                     icon: Icons.leaderboard_rounded,
                     title: l10n.rulesHandsTitle,
                     body: l10n.rulesHandsNote,

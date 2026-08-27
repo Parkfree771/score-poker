@@ -13,6 +13,7 @@ import '../domain/records.dart';
 import '../domain/scoring.dart';
 import '../feedback/haptics.dart';
 import '../l10n/app_localizations.dart';
+import 'widgets/level_stars.dart';
 import 'hand_text.dart';
 import 'personas.dart';
 import 'theme.dart';
@@ -23,6 +24,8 @@ import 'widgets/emote_bubble.dart';
 import 'widgets/chip_3d.dart';
 import 'widgets/flying_card.dart';
 import 'widgets/impact_effects.dart';
+import 'widgets/joker_card.dart' show JokerColors;
+import 'widgets/joker_picker.dart';
 import 'widgets/table_decor.dart';
 import 'widgets/veil_chip.dart';
 
@@ -34,9 +37,17 @@ import 'widgets/veil_chip.dart';
 /// 남는다) → 다음 라운드 자동 진행 → 5라운드 후 최후 공개·정산.
 class GameScreen extends StatefulWidget {
   const GameScreen(
-      {super.key, this.seed, this.persona, this.initialGame, this.boosted = false});
+      {super.key,
+      this.seed,
+      this.persona,
+      this.initialGame,
+      this.boosted = false,
+      this.level = 3});
 
   final int? seed;
+
+  /// 상대 AI 레벨(1~5). 매칭 화면이 RP·연승으로 정해 넘긴다. 기록에도 남는다.
+  final int level;
 
   /// 부스트 판(상점): 내 비공개권 칩 +1, 손패 스왑 1회. 판당 1개 — 도메인이 강제한다.
   final bool boosted;
@@ -65,8 +76,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   late ScoreGame g;
 
   /// 상대 AI. 페르소나의 기풍(크로드/헷/제나)이 곧 행동 계수다.
-  late final VeiledAi _ai =
-      VeiledAi(widget.persona?.style ?? AiStyle.clode, seed: widget.seed);
+  late final VeiledAi _ai = VeiledAi(widget.persona?.style ?? AiStyle.clode,
+      level: widget.level, seed: widget.seed);
 
   /// 타임업 때 **내 남은 배치**를 대신 채워 주는 손. 성격이 없어야 하므로 기본형.
   late final VeiledAi _autoPlay = VeiledAi(AiStyle.clode, seed: widget.seed);
@@ -218,6 +229,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         myScore: res.myTotal,
         oppScore: res.opponentTotal,
         outcome: res.outcome,
+        opponentLevel: widget.level,
       ));
     } on Object {
       // 저장소를 못 쓰는 환경(테스트 등)에서도 판은 끝나야 한다.
@@ -241,7 +253,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _fly(GlobalKey? from, GlobalKey? to, PlayingCard card,
-      {bool faceDown = false, int ms = 300}) async {
+      {bool faceDown = false, bool joker = false, int ms = 300}) async {
     final f = _rectFor(from), t = _rectFor(to);
     if (f == null || t == null || !mounted) return;
     await flyCard(
@@ -251,7 +263,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       to: t,
       card: card,
       faceDown: faceDown,
+      joker: joker,
       duration: Duration(milliseconds: ms),
+      curve: joker ? Curves.easeInCubic : Curves.easeInOutCubic,
+      trail: joker,
     );
   }
 
@@ -408,9 +423,42 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// AI는 라운드 시작에 3장을 계획하고 타이머 중간중간 실제로 놓는다 —
   /// 내 눈에는 뒷면 카드가 실시간으로 깔린다(위치가 곧 정보 = 순서 심리전).
   void _scheduleAi(int seq) {
+    // 조커가 있으면 먼저 결정한다 — 손패에서 조커가 빠진 뒤에 3장 계획을 세워야
+    // 인덱스가 밀리지 않는다.
+    final jm = _ai.jokerMove(g, ai);
+    if (jm == null) {
+      _scheduleAiPlacements(seq, 2000 + _rng.nextInt(3000));
+      return;
+    }
+    Future<void>.delayed(Duration(milliseconds: 1500 + _rng.nextInt(1500)), () async {
+      if (!mounted || seq != _seq || _phase != _Phase.placing) return;
+      final hand = g.hands[ai]!;
+      if (jm.handIndex < hand.length && hand[jm.handIndex].isJoker) {
+        if (jm.strike && g.fields[me]![jm.row][jm.col] != null) {
+          await _fly(_oppHandKey, _cellKey(me, jm.row, jm.col), jm.card, faceDown: true, joker: true);
+          if (!mounted || seq != _seq || _phase != _Phase.placing) return;
+          setState(() => g.declareStrike(ai, jm.handIndex, jm.row, jm.col, jm.card));
+          _playSfx(Sfx.token);
+          _haptic(Haptic.impact);
+        } else if (!jm.strike &&
+            g.leftToPlace(ai) > 0 &&
+            g.fields[ai]![jm.row][jm.col] == null) {
+          await _fly(_oppHandKey, _cellKey(ai, jm.row, jm.col), jm.card, faceDown: true);
+          if (!mounted || seq != _seq || _phase != _Phase.placing) return;
+          setState(() => g.placeWild(ai, jm.handIndex, jm.row, jm.col, jm.card));
+          _playSfx(Sfx.cardPlace);
+          _afterPlacement(seq);
+        }
+      }
+      if (!mounted || seq != _seq || _phase != _Phase.placing) return;
+      _scheduleAiPlacements(seq, 1200 + _rng.nextInt(2000));
+    });
+  }
+
+  void _scheduleAiPlacements(int seq, int firstDelayMs) {
     final plan = _ai.plan(g, ai)
       ..sort((a, b) => b.handIndex.compareTo(a.handIndex)); // 인덱스 안전 순서
-    var delayMs = 2000 + _rng.nextInt(3000);
+    var delayMs = firstDelayMs;
     for (final m in plan) {
       final d = delayMs;
       delayMs += 3000 + _rng.nextInt(5000);
@@ -484,7 +532,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     setState(() => _phase = _Phase.revealing);
     final l10n = AppLocalizations.of(context);
     final aiHides = _ai.hides(g, ai);
-    g.reveal({me: Set.of(_hideMarks), ai: aiHides});
+    g.reveal({me: Set.of(_hideMarks), ai: aiHides}, deferStrikes: true);
     // 동시 공개 — 이 룰의 하이라이트. "두-둥" 스팅과 함께 전 카드가 뒤집힌다.
     setState(() => _banner = l10n.vlRevealBanner);
     _playSfx(Sfx.sting);
@@ -496,6 +544,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     await Future<void>.delayed(const Duration(milliseconds: 900));
     if (!mounted || seq != _seq) return;
     setState(() => _banner = null);
+
+    // 조커 강타 — 기본 3장이 뒤집힌 **다음**에 떨어진다.
+    await _strikeCeremony(seq);
+    if (!mounted || seq != _seq) return;
 
     // 판정 세리머니: 1줄부터 차례로 WIN / LOSE.
     await _laneVerdictCeremony(seq);
@@ -517,6 +569,41 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     final dealt = g.hands[me]!.length; // 보충 전 장수 — 새 카드만 딜링 연출
     setState(() => g.nextRound());
     await _startRound(dealt: dealt);
+  }
+
+  /// 조커 강타 연출 — 두둥(배너) → 표적 위 번쩍·파편 → 카드가 지정 카드로 바뀐다.
+  /// 예고된 강타가 없으면 조용히 정산만 한다. 규칙 적용(`resolveStrike`)은 한 방씩.
+  Future<void> _strikeCeremony(int seq) async {
+    final strikes = [for (final p in PlayerId.values) ...g.pendingStrikes[p]!];
+    if (strikes.isEmpty) {
+      g.resolveStrikes();
+      return;
+    }
+    final l10n = AppLocalizations.of(context);
+    setState(() => _banner = l10n.jokerStrikeBanner);
+    _playSfx(Sfx.sting);
+    _haptic(Haptic.impact);
+    await Future<void>.delayed(const Duration(milliseconds: 750));
+    if (!mounted || seq != _seq) return;
+    setState(() => _banner = null);
+    var struckMine = false;
+    for (final s in strikes) {
+      await Future<void>.delayed(const Duration(milliseconds: 260));
+      if (!mounted || seq != _seq) return;
+      final rect = _rectFor(_cellKey(s.by.other, s.row, s.col));
+      if (rect != null) {
+        final overlay = Overlay.of(context);
+        unawaited(hitFlash(overlay: overlay, vsync: this, at: rect, color: JokerColors.gold));
+        unawaited(sparkBurst(overlay: overlay, vsync: this, at: rect, color: JokerColors.gold));
+      }
+      _playSfx(Sfx.attackHit);
+      _haptic(Haptic.impact);
+      setState(() => g.resolveStrike(s.by, s.row, s.col));
+      if (s.by == ai) struckMine = true;
+      await Future<void>.delayed(const Duration(milliseconds: 520));
+    }
+    if (!mounted || seq != _seq) return;
+    if (struckMine) _snack(l10n.vlOppStruck);
   }
 
   /// 줄별 판정 세리머니 — 첫째 줄부터 차례로, 공개된 정보 기준의
@@ -704,23 +791,99 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   void _tapHand(int i) {
-    if (_phase != _Phase.placing || _swapping || g.leftToPlace(me) <= 0) return;
+    if (_phase != _Phase.placing || _swapping) return;
+    final hand = g.hands[me]!;
+    if (i >= hand.length) return;
+    // 조커는 배치를 다 했어도 고를 수 있다 — 강타는 별도 행동이다.
+    if (!hand[i].isJoker && g.leftToPlace(me) <= 0) return;
     _haptic(Haptic.select);
     setState(() => selected = selected == i ? null : i);
   }
+
+  bool get _selectedIsJoker =>
+      selected != null && selected! < g.hands[me]!.length && g.hands[me]![selected!].isJoker;
 
   void _onCellTap(PlayerId owner, int row, int col) {
     if (_phase != _Phase.placing) return;
     if (owner == me) {
       final slot = g.fields[me]![row][col];
       if (selected != null && slot == null) {
-        _placeSelected(row);
+        if (_selectedIsJoker) {
+          _placeWildSelected(row);
+        } else {
+          _placeSelected(row);
+        }
       } else if (slot != null && slot.round == g.round && !slot.faceUp) {
         _toggleHide(row, col); // 타이머가 끝나기 전까지는 자유롭게 변경
       }
     } else {
+      // 예고해 둔 강타를 다시 탭하면 물린다(조커가 손으로 돌아온다).
+      if (g.pendingStrikes[me]!.any((s) => s.row == row && s.col == col)) {
+        _cancelStrike(row, col);
+        return;
+      }
+      if (_selectedIsJoker && g.fields[ai]![row][col] != null) {
+        _strikeSelected(row, col);
+        return;
+      }
       _tapPeek(row, col);
     }
+  }
+
+  /// 조커를 내 판에 와일드로 — 카드를 고르고 나서 날아가 뒷면으로 앉는다.
+  Future<void> _placeWildSelected(int row) async {
+    if (selected == null || g.leftToPlace(me) <= 0) return;
+    final col = _nextCol(me, row);
+    if (col < 0) return;
+    final seq = _seq;
+    final i = selected!;
+    final card = await showJokerPicker(context, strike: false);
+    if (card == null || !mounted || seq != _seq || _phase != _Phase.placing) return;
+    if (i >= g.hands[me]!.length || !g.hands[me]![i].isJoker) return;
+    if (g.fields[me]![row][col] != null || g.leftToPlace(me) <= 0) return;
+    setState(() {
+      selected = null;
+      _flyingHandIndex = i;
+    });
+    await _fly(_handKey(i), _cellKey(me, row, col), card);
+    if (!mounted || seq != _seq || _phase != _Phase.placing) return;
+    setState(() {
+      _flyingHandIndex = null;
+      g.placeWild(me, i, row, col, card);
+    });
+    _playSfx(Sfx.cardPlace);
+    _haptic(Haptic.place);
+    _afterPlacement(seq);
+  }
+
+  /// 조커 강타 예고 — 카드를 고르면 조커가 상대 카드 위로 날아가 앉는다(발동은 공개 때).
+  Future<void> _strikeSelected(int row, int col) async {
+    if (selected == null) return;
+    final seq = _seq;
+    final i = selected!;
+    final card = await showJokerPicker(context, strike: true);
+    if (card == null || !mounted || seq != _seq || _phase != _Phase.placing) return;
+    if (i >= g.hands[me]!.length || !g.hands[me]![i].isJoker) return;
+    if (g.fields[ai]![row][col] == null) return;
+    setState(() {
+      selected = null;
+      _flyingHandIndex = i;
+    });
+    await _fly(_handKey(i), _cellKey(ai, row, col), card, faceDown: true, joker: true);
+    if (!mounted || seq != _seq || _phase != _Phase.placing) return;
+    setState(() {
+      _flyingHandIndex = null;
+      g.declareStrike(me, i, row, col, card);
+    });
+    _playSfx(Sfx.token);
+    _haptic(Haptic.shieldLock);
+  }
+
+  void _cancelStrike(int row, int col) {
+    if (_phase != _Phase.placing) return;
+    setState(() => g.cancelStrike(me, row, col));
+    _haptic(Haptic.select);
+    _snack(AppLocalizations.of(context).jokerStrikeCancelled);
   }
 
   Future<void> _placeSelected(int row) async {
@@ -966,6 +1129,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 style: const TextStyle(
                     color: AppColors.textMuted, fontWeight: FontWeight.w700, fontSize: 13)),
           ),
+          if (widget.persona != null) ...[
+            const SizedBox(width: 6),
+            LevelStars(level: widget.level, size: 13, gap: 0, animate: !_frozen),
+          ],
           const SizedBox(width: 10),
           _WinsPill(count: wins.opp, color: AppColors.oppPrimary),
           const Spacer(),
@@ -1226,10 +1393,29 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         isHighlighted: _isHighlighted,
         lookOf: _lookOf,
         chipOn: _chipOn,
+        jokerOn: _jokerOn,
         lineCardsOf: (p, line) => g.publicRow(p, line),
         cellKeyFor: _cellKey,
         landscape: landscape,
       );
+
+  /// 조커 배지: 강타 예고(상대가 노리는 내 카드 / 내가 노리는 상대 카드)는 떠 있는 배지,
+  /// 와일드·강타로 바뀐 카드는 앉은 배지. 상대의 와일드는 공개된 뒤에만 보인다.
+  JokerMark? _jokerOn(PlayerId owner, int row, int col) {
+    final attacker = owner.other;
+    if (g.pendingStrikes[attacker]!.any((s) => s.row == row && s.col == col)) {
+      return JokerMark(attacker == me ? AppColors.mePrimary : AppColors.oppPrimary, pending: true);
+    }
+    final s = g.fields[owner]![row][col];
+    if (s == null) return null;
+    if (s.strikeBy != null) {
+      return JokerMark(s.strikeBy == me ? AppColors.mePrimary : AppColors.oppPrimary);
+    }
+    if (s.wild && (owner == me || s.faceUp)) {
+      return JokerMark(owner == me ? AppColors.mePrimary : AppColors.oppPrimary);
+    }
+    return null;
+  }
 
   CellLook _lookOf(PlayerId owner, int row, int col) {
     final s = g.fields[owner]![row][col];
@@ -1418,7 +1604,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       case _Phase.finished:
         text = '';
       case _Phase.placing:
-        text = g.leftToPlace(me) > 0 ? l10n.vlPlacePrompt : l10n.vlWaitOpp;
+        text = _selectedIsJoker
+            ? l10n.jokerHandTip
+            : (g.leftToPlace(me) > 0 ? l10n.vlPlacePrompt : l10n.vlWaitOpp);
     }
     if (text.isEmpty) return const SizedBox.shrink();
     return Padding(

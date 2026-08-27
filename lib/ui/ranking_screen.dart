@@ -5,6 +5,7 @@ import '../domain/records.dart';
 import '../domain/scoring.dart';
 import '../l10n/app_localizations.dart';
 import 'theme.dart';
+import 'widgets/level_stars.dart';
 
 /// 랭킹 페이지: 랭킹 점수(RP)·티어 + 전적 + 최고 점수 TOP 10 + 최근 대국.
 /// 세로 = 한 열 스크롤, 가로 = [요약 | 기록 리스트] 두 열.
@@ -231,7 +232,22 @@ class _RatingCard extends StatelessWidget {
                 style: const TextStyle(
                     color: AppColors.ink, fontWeight: FontWeight.w900, fontSize: 14)),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
+          // 다음 판 상대 레벨 — "이기면 더 센 상대"가 여기서 읽힌다.
+          Row(
+            children: [
+              Text(l10n.nextOpponentLevel,
+                  style: const TextStyle(
+                      color: AppColors.textMuted, fontSize: 12, fontWeight: FontWeight.w800)),
+              const SizedBox(width: 8),
+              LevelStars(level: data.opponentLevel, size: 18, gap: 1),
+              const SizedBox(width: 6),
+              Text(l10n.opponentLevel(data.opponentLevel),
+                  style: const TextStyle(
+                      color: AppColors.goldSoft, fontSize: 12, fontWeight: FontWeight.w800)),
+            ],
+          ),
+          const SizedBox(height: 14),
           _TierLadder(l10n: l10n, current: data.tier),
           if (next != null) ...[
             const SizedBox(height: 12),

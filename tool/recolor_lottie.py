@@ -54,3 +54,21 @@ recolor('wired-lineal-46-timer-stopwatch-hover-start.json', 'persona_stopwatch.j
     ('#f24c00', 'fl'): '#ff7a1a', ('#ebe6ef', 'fl'): '#eaf2ff', ('#3a3347', 'fl'): '#3d6fa3',
     ('#121331', '*'): '#12213a',
 })
+
+# ---- 레벨 별 (상대 레벨 1~5를 별 개수로 — 금빛 면 + 크림 하이라이트, 어두운 브라스 선)
+recolor('wired-lineal-237-star-rating-hover-pinch.json', 'level_star.json', {
+    ('#ffc738', 'fl'): '#e0b64a', ('#ebe6ef', 'fl'): '#fff1c4',
+    ('#121331', '*'): '#4a3410',
+})
+
+# ---- 홈 모드 카드 (doodle-motif: #2a306b 선 · #e68e6e 살구 면 · #ff0000 면 · #434343 면)
+# 사람 vs AI: 네트워크 노드 — 차가운 시안 선 + 틸 면 ("기계·회로")
+recolor('doodle-motif-345-business-network-hover-pinch.json', 'mode_ai.json', {
+    ('#2a306b', 'st'): '#5fd3e6', ('#e68e6e', 'fl'): '#2f9ea8', ('#e68e6e', 'st'): '#5fd3e6',
+    ('#ff0000', 'fl'): '#0f2b33',
+})
+# 사람 vs 사람: 세 사람 — 따뜻한 크림 선 + 브라스 면 + 살빛 ("사람·온기")
+recolor('doodle-motif-586-male-and-two-female-hover-nodding.json', 'mode_human.json', {
+    ('#2a306b', 'st'): '#efe3c4', ('#e68e6e', 'fl'): '#d6b25c', ('#e68e6e', 'st'): '#efe3c4',
+    ('#ff0000', 'fl'): '#e9c9a1', ('#434343', 'fl'): '#3b2a10',
+})

@@ -241,7 +241,7 @@
   "@rulesGoalBody": {},
   "rulesDeckTitle": "The deck",
   "@rulesDeckTitle": {},
-  "rulesDeckBody": "A standard 52-card deck, no jokers — 2 through 10, J, Q, K, A in four suits. Numbers count at face value: J=11, Q=12, K=13, A=14.",
+  "rulesDeckBody": "A standard 52-card deck plus two jokers — 2 through 10, J, Q, K, A in four suits. Numbers count at face value: J=11, Q=12, K=13, A=14.",
   "@rulesDeckBody": {},
   "rulesDeckNote": "An ace may also count as 1, but only inside a straight (A-2-3-4-5). Suit order is ♠ > ♥ > ◆ > ♣.",
   "@rulesDeckNote": {},
@@ -649,5 +649,61 @@
   "personaMistLose2": "Too hasty. Fair enough.",
   "@personaMistLose2": {},
   "personaMistDraw1": "A draw. Only time spent.",
-  "@personaMistDraw1": {}
+  "@personaMistDraw1": {},
+  "opponentLevel": "Level {n}",
+  "@opponentLevel": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "matchLevelHint": "Win streaks and RP bring stronger opponents.",
+  "@matchLevelHint": {},
+  "nextOpponentLevel": "Next opponent",
+  "@nextOpponentLevel": {},
+  "jokerPickWildTitle": "Place the joker as…",
+  "@jokerPickWildTitle": {},
+  "jokerPickStrikeTitle": "Strike! Replace their card with…",
+  "@jokerPickStrikeTitle": {},
+  "jokerPickWildHint": "Any rank and suit. It lands face-down like any card, and you can veil it.",
+  "@jokerPickWildHint": {},
+  "jokerPickStrikeHint": "Their card is destroyed at the reveal and this card takes its place, face-up. Tap the marked card again before the reveal to take the joker back.",
+  "@jokerPickStrikeHint": {},
+  "jokerRankLabel": "RANK (2–10, J, Q, K, A)",
+  "@jokerRankLabel": {},
+  "jokerRankHint": "Type a number",
+  "@jokerRankHint": {},
+  "jokerSuitLabel": "SUIT",
+  "@jokerSuitLabel": {},
+  "jokerPickNeedCard": "Pick a rank",
+  "@jokerPickNeedCard": {},
+  "jokerConfirmWild": "Place as {card}",
+  "@jokerConfirmWild": {
+    "placeholders": {
+      "card": {
+        "type": "String"
+      }
+    }
+  },
+  "jokerConfirmStrike": "Strike with {card}",
+  "@jokerConfirmStrike": {
+    "placeholders": {
+      "card": {
+        "type": "String"
+      }
+    }
+  },
+  "jokerStrikeBanner": "JOKER STRIKE!",
+  "@jokerStrikeBanner": {},
+  "vlOppStruck": "Your opponent struck one of your cards with a joker!",
+  "@vlOppStruck": {},
+  "jokerStrikeCancelled": "Joker returned to your hand.",
+  "@jokerStrikeCancelled": {},
+  "jokerHandTip": "Joker: tap it, then tap an empty slot of yours (wild) or any card of theirs (strike).",
+  "@jokerHandTip": {},
+  "rulesJokerTitle": "Jokers",
+  "@rulesJokerTitle": {},
+  "rulesJokerBody": "Two jokers are shuffled into the deck. A joker in hand can be used two ways. Wild: place it on an empty slot of yours as any rank and suit you choose — it counts as one of the round's three placements, goes down face-down, and can be veiled. Strike: point it at any card already on the opponent's board (face-up or hidden). This is a separate action, not one of the three placements; the target's position is visible to them right away. At the reveal, the three cards flip first, then the strike lands: their card is destroyed and the card you chose takes its place, face-up. Until the reveal you can take the joker back by tapping the marked card.",
+  "@rulesJokerBody": {}
 }

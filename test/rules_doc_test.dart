@@ -16,6 +16,15 @@ void main() {
       expect(deck.draw(52).length, 52);
     });
 
+    test('조커 2장을 더하면 54장, 조커는 랭크 계산에 안 들어간다', () {
+      final deck = Deck.standard(jokers: 2);
+      expect(deck.remaining, 54);
+      final all = deck.draw(54);
+      expect(all.where((x) => x.isJoker).length, 2);
+      expect(const PlayingCard.joker().isJoker, isTrue);
+      expect(const PlayingCard(2, Suit.clubs).isJoker, isFalse);
+    });
+
     test('모든 랭크가 정확히 4장씩', () {
       final all = Deck.standard().draw(52);
       for (final rank in Ranks.all) {

@@ -64,4 +64,43 @@ void main() {
       expect(back.outcome, MatchOutcome.draw);
     });
   });
+  group('상대 레벨', () {
+    GameRecord rec(MatchOutcome o, {int lv = 3}) => GameRecord(
+        playedAt: DateTime(2026, 8, 27), myScore: 100, oppScore: 90, outcome: o, opponentLevel: lv);
+
+    test('승리 RP는 상대 레벨에 비례한다(1레벨 +15 … 5레벨 +35)', () {
+      expect(RankingData.ratingDelta(MatchOutcome.win, opponentLevel: 1), 15);
+      expect(RankingData.ratingDelta(MatchOutcome.win, opponentLevel: 5), 35);
+      expect(RankingData.ratingDelta(MatchOutcome.lose, opponentLevel: 5), -15);
+      expect(RankingData.empty.addRecord(rec(MatchOutcome.win, lv: 5)).rating, 35);
+    });
+
+    test('티어가 기본 레벨, 3연승마다 +1, 최대 5', () {
+      expect(RankingData.opponentLevelFor(0, 0), 1);
+      expect(RankingData.opponentLevelFor(0, 3), 2);
+      expect(RankingData.opponentLevelFor(100, 0), 2);
+      expect(RankingData.opponentLevelFor(200, 0), 3);
+      expect(RankingData.opponentLevelFor(300, 0), 4);
+      expect(RankingData.opponentLevelFor(450, 0), 5);
+      expect(RankingData.opponentLevelFor(450, 9), 5);
+    });
+
+    test('연승은 최신 기록부터 세고 패배에서 끊긴다', () {
+      var d = RankingData.empty
+          .addRecord(rec(MatchOutcome.win))
+          .addRecord(rec(MatchOutcome.lose))
+          .addRecord(rec(MatchOutcome.win))
+          .addRecord(rec(MatchOutcome.win));
+      expect(d.winStreak, 2);
+      d = d.addRecord(rec(MatchOutcome.win));
+      expect(d.winStreak, 3);
+      expect(d.opponentLevel, 2, reason: '아이언(1) + 3연승(+1)');
+    });
+
+    test('레벨 없는 옛 기록은 3으로 읽는다', () {
+      final r = GameRecord.fromJson({'at': 0, 'my': 1, 'opp': 2, 'o': 0});
+      expect(r.opponentLevel, 3);
+      expect(GameRecord.fromJson(rec(MatchOutcome.win, lv: 5).toJson()).opponentLevel, 5);
+    });
+  });
 }

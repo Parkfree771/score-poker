@@ -11,20 +11,23 @@ class Deck {
   int get remaining => _cards.length;
   bool get isEmpty => _cards.isEmpty;
 
-  /// 표준 52장 덱을 생성한다(셔플 전).
-  factory Deck.standard() {
+  /// 표준 52장 덱(+ 조커 [jokers]장)을 생성한다(셔플 전).
+  factory Deck.standard({int jokers = 0}) {
     final cards = <PlayingCard>[];
     for (final suit in Suit.values) {
       for (final rank in Ranks.all) {
         cards.add(PlayingCard(rank, suit));
       }
     }
+    for (var i = 0; i < jokers; i++) {
+      cards.add(const PlayingCard.joker());
+    }
     return Deck(cards);
   }
 
   /// 셔플된 표준 덱. 테스트 재현성을 위해 [seed] 주입 가능.
-  factory Deck.shuffled({int? seed}) {
-    return Deck.standard()..shuffle(Random(seed));
+  factory Deck.shuffled({int? seed, int jokers = 0}) {
+    return Deck.standard(jokers: jokers)..shuffle(Random(seed));
   }
 
   void shuffle([Random? random]) {

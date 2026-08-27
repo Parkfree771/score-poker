@@ -11,6 +11,7 @@ import '../hand_text.dart';
 import '../theme.dart';
 import 'card_back.dart';
 import 'card_face.dart';
+import 'joker_card.dart';
 import 'table_decor.dart';
 import 'veil_chip.dart' show ChipBadge;
 
@@ -27,6 +28,13 @@ import 'veil_chip.dart' show ChipBadge;
 ///   틈에서 불씨가 샌다(배지를 붙이지 않는다)
 /// - [peek] 내 미공개 카드(홀카드 필) · [sealed] 내가 숨기기로 지정한 카드
 enum CellLook { face, back, backVeiled, backPeekable, peek, sealed }
+
+/// 칸 위 조커 배지: [color]는 조커 주인(나/상대) 색, [pending]은 강타 예고(아직 발동 전).
+class JokerMark {
+  const JokerMark(this.color, {this.pending = false});
+  final Color color;
+  final bool pending;
+}
 
 /// 게임 보드 — 방향 인식형.
 ///
@@ -49,6 +57,7 @@ class BoardView extends StatelessWidget {
     this.lineCardsOf,
     this.cellKeyFor,
     this.chipOn,
+    this.jokerOn,
     this.landscape = false,
   });
 
@@ -73,6 +82,9 @@ class BoardView extends StatelessWidget {
   /// 칸 위에 **앉아 있는 칩**의 주인 색. 숨긴 카드(내 봉인·상대 뒷면)와 비공개권으로
   /// 열어본 카드에 붙는다 — "여기에 칩이 쓰였다"는 표시. null이면 없음.
   final Color? Function(PlayerId owner, int row, int col)? chipOn;
+
+  /// 조커 배지 — 와일드로 놓인/강타로 바뀐 카드, 또는 강타가 **예고된** 카드(pending).
+  final JokerMark? Function(PlayerId owner, int row, int col)? jokerOn;
   final GlobalKey Function(PlayerId owner, int row, int col)? cellKeyFor;
   final bool landscape;
 
@@ -135,6 +147,7 @@ class BoardView extends StatelessWidget {
       isNext: col == _nextCol(owner, row),
       highlighted: isHighlighted?.call(owner, row, col) ?? false,
       chip: chipOn?.call(owner, row, col),
+      joker: jokerOn?.call(owner, row, col),
       onTap: () => onCellTap(owner, row, col),
     );
   }
@@ -301,10 +314,12 @@ class _BoardSlot extends StatelessWidget {
     required this.onTap,
     this.look = CellLook.face,
     this.chip,
+    this.joker,
   });
 
   final PlacedCard? placed;
   final CellLook look;
+  final JokerMark? joker;
 
   /// 카드 위에 앉힐 칩의 주인 색(null이면 칩 없음).
   final Color? chip;
@@ -409,11 +424,14 @@ class _BoardSlot extends StatelessWidget {
                 ),
               ],
             );
+      final marked = joker == null
+          ? chipped
+          : withJokerBadge(chipped, cell: size, color: joker!.color, pending: joker!.pending);
       inner = highlighted
           ? Stack(
               fit: StackFit.expand,
               children: [
-                chipped,
+                marked,
                 IgnorePointer(
                   child: DecoratedBox(
                     decoration: BoxDecoration(
@@ -427,7 +445,7 @@ class _BoardSlot extends StatelessWidget {
                 ),
               ],
             )
-          : chipped;
+          : marked;
     }
     return GestureDetector(
       onTap: onTap,

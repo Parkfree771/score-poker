@@ -4,6 +4,7 @@ import '../l10n/app_localizations.dart';
 import '../monetization/monetization.dart';
 import 'game_screen.dart';
 import 'shop_screen.dart';
+import 'widgets/level_stars.dart';
 import 'widgets/veil_chip.dart';
 import 'personas.dart';
 import 'theme.dart';
@@ -113,11 +114,15 @@ class PersonaCard extends StatelessWidget {
     required this.persona,
     required this.onTap,
     this.vertical = false,
+    this.level,
   });
 
   final AppLocalizations l10n;
   final Persona persona;
   final VoidCallback onTap;
+
+  /// 매칭된 상대의 레벨(1~5). 있으면 이름 아래에 별로 보여준다(도감에서는 null).
+  final int? level;
 
   /// 가로 화면용 세로형 카드(아이콘 위, 텍스트 아래).
   final bool vertical;
@@ -188,6 +193,20 @@ class PersonaCard extends StatelessWidget {
             taglineChip,
           ],
         ),
+        if (level != null) ...[
+          const SizedBox(height: 6),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: vertical ? MainAxisAlignment.center : MainAxisAlignment.start,
+            children: [
+              LevelStars(level: level!, size: 22, gap: 1),
+              const SizedBox(width: 8),
+              Text(l10n.opponentLevel(level!),
+                  style: const TextStyle(
+                      color: AppColors.goldSoft, fontSize: 12, fontWeight: FontWeight.w800)),
+            ],
+          ),
+        ],
         const SizedBox(height: 5),
         Text(persona.desc,
             textAlign: vertical ? TextAlign.center : TextAlign.start,

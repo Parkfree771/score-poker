@@ -131,6 +131,22 @@ ScoreGame _demoState() {
   return g;
 }
 
+/// 조커가 한 화면에 다 보이는 판: 손패의 조커, 내 와일드(뒷면), 상대가 내 카드에 예고한
+/// 강타(떠 있는 배지), 내가 강타로 바꿔 놓은 상대 카드(앉은 배지).
+ScoreGame _jokerState() {
+  final g = _demoState();
+  g.hands[PlayerId.p0]!.insert(0, const PlayingCard.joker());
+  // 내 와일드: 이번 라운드에 K♥로 놓아 둔 뒷면.
+  g.fields[PlayerId.p0]![0][2] = VeiledSlot(const PlayingCard(13, Suit.hearts), round: 2, wild: true);
+  // 상대가 내 (1,0)에 강타 예고.
+  g.pendingStrikes[PlayerId.p1]!.add(const JokerStrike(
+      by: PlayerId.p1, row: 1, col: 0, card: PlayingCard(2, Suit.clubs)));
+  // 지난 라운드에 내가 상대 (0,0)을 2♠로 바꿔 놓았다.
+  g.fields[PlayerId.p1]![0][0] =
+      VeiledSlot(const PlayingCard(2, Suit.spades), round: 0, faceUp: true, strikeBy: PlayerId.p0);
+  return g;
+}
+
 /// 최후 공개까지 끝난 판 — 결과 오버레이 캡처용.
 ScoreGame _finishedState() {
   final g = ScoreGame.deal(seed: 7);
@@ -216,29 +232,39 @@ void main() {
     await tester.binding.setSurfaceSize(size);
   }
 
+  /// 홈·랭킹 카드의 로티(모드 아이콘·레벨 별)가 무한 반복이라 pumpAndSettle이 끝나지 않는다 —
+  /// 화면 전환(≤400ms)이 끝날 만큼 고정 펌프한다.
+  /// runAsync(실제 시간)를 쓰면 세리머니 파티클 같은 연출이 실행마다 달라져 골든이 흔들린다 —
+  /// 테스트 시계만 고정 펌프한다.
+  Future<void> settle(WidgetTester tester) async {
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+  }
+
   testWidgets('home portrait', (tester) async {
     await setScreen(tester, _portrait);
     await tester.pumpWidget(_app(HomeScreen(rankingPreloaded: _demoRanking())));
-    await tester.pumpAndSettle();
+    await settle(tester);
     await expectLater(find.byType(HomeScreen), matchesGoldenFile('goldens/shot_01_home_portrait.png'));
   });
 
   testWidgets('home landscape', (tester) async {
     await setScreen(tester, _landscape);
     await tester.pumpWidget(_app(HomeScreen(rankingPreloaded: _demoRanking())));
-    await tester.pumpAndSettle();
+    await settle(tester);
     await expectLater(find.byType(HomeScreen), matchesGoldenFile('goldens/shot_02_home_landscape.png'));
   });
 
   testWidgets('home pvp coming soon snackbar', (tester) async {
     await setScreen(tester, _portrait);
     await tester.pumpWidget(_app(const HomeScreen()));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(Icons.people_alt_rounded));
+    await settle(tester);
+    await tester.tap(find.text('사람 vs 사람'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 350));
     await expectLater(find.byType(HomeScreen), matchesGoldenFile('goldens/shot_03_home_pvp_comingsoon.png'));
-    await tester.pumpAndSettle();
+    await settle(tester);
   });
 
   testWidgets('game board portrait', (tester) async {
@@ -261,35 +287,35 @@ void main() {
   testWidgets('result overlay portrait', (tester) async {
     await setScreen(tester, _portrait);
     await tester.pumpWidget(_app(GameScreen(initialGame: _finishedState())));
-    await tester.pumpAndSettle();
+    await settle(tester);
     await expectLater(find.byType(GameScreen), matchesGoldenFile('goldens/shot_08_result_portrait.png'));
   });
 
   testWidgets('result overlay landscape', (tester) async {
     await setScreen(tester, _landscape);
     await tester.pumpWidget(_app(GameScreen(initialGame: _finishedState())));
-    await tester.pumpAndSettle();
+    await settle(tester);
     await expectLater(find.byType(GameScreen), matchesGoldenFile('goldens/shot_09_result_landscape.png'));
   });
 
   testWidgets('ranking portrait', (tester) async {
     await setScreen(tester, _portrait);
     await tester.pumpWidget(_app(RankingScreen(preloaded: _demoRanking())));
-    await tester.pumpAndSettle();
+    await settle(tester);
     await expectLater(find.byType(RankingScreen), matchesGoldenFile('goldens/shot_11_ranking_portrait.png'));
   });
 
   testWidgets('ranking landscape', (tester) async {
     await setScreen(tester, _landscape);
     await tester.pumpWidget(_app(RankingScreen(preloaded: _demoRanking())));
-    await tester.pumpAndSettle();
+    await settle(tester);
     await expectLater(find.byType(RankingScreen), matchesGoldenFile('goldens/shot_12_ranking_landscape.png'));
   });
 
   testWidgets('ranking empty state', (tester) async {
     await setScreen(tester, _portrait);
     await tester.pumpWidget(_app(const RankingScreen(preloaded: RankingData.empty)));
-    await tester.pumpAndSettle();
+    await settle(tester);
     await expectLater(find.byType(RankingScreen), matchesGoldenFile('goldens/shot_13_ranking_empty.png'));
   });
 
@@ -304,7 +330,7 @@ void main() {
   testWidgets('result overlay small landscape', (tester) async {
     await setScreen(tester, const Size(740, 360));
     await tester.pumpWidget(_app(GameScreen(initialGame: _finishedState())));
-    await tester.pumpAndSettle();
+    await settle(tester);
     await expectLater(find.byType(GameScreen), matchesGoldenFile('goldens/shot_16_result_small_landscape.png'));
   });
 
@@ -316,11 +342,41 @@ void main() {
     await tester.pump();
   }
 
+  testWidgets('joker board', (tester) async {
+    await setScreen(tester, _portrait);
+    await tester.pumpWidget(_app(GameScreen(initialGame: _jokerState())));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    await expectLater(find.byType(GameScreen), matchesGoldenFile('goldens/shot_43_joker_board.png'));
+  });
+
+  testWidgets('joker picker sheet', (tester) async {
+    await setScreen(tester, _portrait);
+    await tester.pumpWidget(_app(GameScreen(initialGame: _jokerState())));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.tap(find.byWidgetPredicate(
+        (w) => w.key is GlobalKey && w.key.toString().contains('hand-0')));
+    await tester.pump();
+    await tester.tap(
+        find.byWidgetPredicate(
+            (w) => w.key is GlobalKey && w.key.toString().contains('cell-p1-0-1')),
+        warnIfMissed: false);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.enterText(find.byKey(const ValueKey('joker-rank')), 'A');
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('joker-suit-hearts')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/shot_44_joker_picker.png'));
+  });
+
   testWidgets('match screen portrait', (tester) async {
     await setScreen(tester, _portrait);
     final personas = buildPersonas(await AppLocalizations.delegate.load(const Locale('ko')));
     await tester.pumpWidget(await _appWithMoney(
-        tester, MatchScreen(fixed: personas[3], searchDuration: Duration.zero)));
+        tester, MatchScreen(fixed: personas[3], fixedLevel: 5, searchDuration: Duration.zero)));
     for (var i = 0; i < 6; i++) {
       await tester.pump(const Duration(milliseconds: 200));
     }
@@ -355,7 +411,7 @@ void main() {
   testWidgets('persona in game with greeting', (tester) async {
     await setScreen(tester, _portrait);
     final clode = buildPersonas(AppLocalizationsKo())[0];
-    await tester.pumpWidget(_app(GameScreen(initialGame: _demoState(), persona: clode)));
+    await tester.pumpWidget(_app(GameScreen(initialGame: _demoState(), persona: clode, level: 4)));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400)); // 인사 말풍선 팝 완료
     await expectLater(find.byType(GameScreen), matchesGoldenFile('goldens/shot_22_persona_game.png'));
@@ -365,7 +421,7 @@ void main() {
   testWidgets('result with persona portrait', (tester) async {
     await setScreen(tester, _portrait);
     final clode = buildPersonas(AppLocalizationsKo())[0];
-    await tester.pumpWidget(_app(GameScreen(initialGame: _finishedState(), persona: clode)));
+    await tester.pumpWidget(_app(GameScreen(initialGame: _finishedState(), persona: clode, level: 4)));
     // 결과 오버레이의 캐릭터 로티는 계속 도니까 pumpAndSettle 대신 고정 펌프.
     await pumpLottie(tester);
     await tester.pump(const Duration(milliseconds: 400));
@@ -575,14 +631,14 @@ void main() {
         ),
       ),
     ));
-    await tester.pumpAndSettle();
+    await settle(tester);
     await expectLater(find.byType(Wrap), matchesGoldenFile('goldens/shot_10_card_gallery.png'));
   });
 
   testWidgets('shop portrait', (tester) async {
     await setScreen(tester, _portrait);
     await tester.pumpWidget(await _appWithMoney(tester, const ShopScreen()));
-    await tester.pumpAndSettle();
+    await settle(tester);
     await expectLater(
         find.byType(ShopScreen), matchesGoldenFile('goldens/shot_26_shop_portrait.png'));
   });
@@ -590,7 +646,7 @@ void main() {
   testWidgets('shop landscape', (tester) async {
     await setScreen(tester, _landscape);
     await tester.pumpWidget(await _appWithMoney(tester, const ShopScreen()));
-    await tester.pumpAndSettle();
+    await settle(tester);
     await expectLater(
         find.byType(ShopScreen), matchesGoldenFile('goldens/shot_27_shop_landscape.png'));
   });
@@ -601,7 +657,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     await setScreen(tester, _portrait);
     await tester.pumpWidget(_appWithSettings(const SettingsScreen()));
-    await tester.pumpAndSettle();
+    await settle(tester);
     await expectLater(
         find.byType(SettingsScreen), matchesGoldenFile('goldens/shot_30_settings_ko.png'));
   });
@@ -611,7 +667,7 @@ void main() {
     await setScreen(tester, _portrait);
     await tester.pumpWidget(_appWithSettings(const SettingsScreen(),
         locale: 'en', selected: const Locale('en')));
-    await tester.pumpAndSettle();
+    await settle(tester);
     await expectLater(
         find.byType(SettingsScreen), matchesGoldenFile('goldens/shot_31_settings_en.png'));
   });
@@ -620,7 +676,7 @@ void main() {
     await setScreen(tester, _portrait);
     await tester.pumpWidget(
         _app(HomeScreen(rankingPreloaded: _demoRanking()), locale: 'en'));
-    await tester.pumpAndSettle();
+    await settle(tester);
     await expectLater(
         find.byType(HomeScreen), matchesGoldenFile('goldens/shot_32_home_en.png'));
   });
@@ -628,7 +684,7 @@ void main() {
   testWidgets('shop english', (tester) async {
     await setScreen(tester, _portrait);
     await tester.pumpWidget(await _appWithMoney(tester, const ShopScreen(), locale: 'en'));
-    await tester.pumpAndSettle();
+    await settle(tester);
     await expectLater(
         find.byType(ShopScreen), matchesGoldenFile('goldens/shot_33_shop_en.png'));
   });
@@ -659,7 +715,7 @@ void main() {
   testWidgets('how to play korean', (tester) async {
     await setScreen(tester, _portrait);
     await tester.pumpWidget(_app(const HowToPlayScreen()));
-    await tester.pumpAndSettle();
+    await settle(tester);
     await expectLater(find.byType(HowToPlayScreen),
         matchesGoldenFile('goldens/shot_36_howtoplay_ko.png'));
   });
@@ -667,12 +723,12 @@ void main() {
   testWidgets('how to play english (reveal page)', (tester) async {
     await setScreen(tester, _portrait);
     await tester.pumpWidget(_app(const HowToPlayScreen(), locale: 'en'));
-    await tester.pumpAndSettle();
+    await settle(tester);
     // 3번째 장(동시 공개) — 삽화가 가장 넓은 장이라 넘침 검증에 좋다.
     await tester.tap(find.text('Next'));
-    await tester.pumpAndSettle();
+    await settle(tester);
     await tester.tap(find.text('Next'));
-    await tester.pumpAndSettle();
+    await settle(tester);
     await expectLater(find.byType(HowToPlayScreen),
         matchesGoldenFile('goldens/shot_37_howtoplay_en.png'));
   });
@@ -680,7 +736,7 @@ void main() {
   testWidgets('rules korean', (tester) async {
     await setScreen(tester, _portrait);
     await tester.pumpWidget(_app(const RulesScreen()));
-    await tester.pumpAndSettle();
+    await settle(tester);
     await expectLater(
         find.byType(RulesScreen), matchesGoldenFile('goldens/shot_38_rules_ko.png'));
   });
@@ -688,7 +744,7 @@ void main() {
   testWidgets('rules english', (tester) async {
     await setScreen(tester, _portrait);
     await tester.pumpWidget(_app(const RulesScreen(), locale: 'en'));
-    await tester.pumpAndSettle();
+    await settle(tester);
     await expectLater(
         find.byType(RulesScreen), matchesGoldenFile('goldens/shot_39_rules_en.png'));
   });

@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 
+import '../data/records_store.dart';
 import '../l10n/app_localizations.dart';
 import '../monetization/monetization.dart';
 import 'game_screen.dart';
@@ -16,10 +17,14 @@ import 'theme.dart';
 /// 부스트 토글 → 대전 시작. 다시 뽑기는 없다(랜덤 매칭의 의미가 사라진다).
 /// [fixed]/[seed]는 테스트·캡처용.
 class MatchScreen extends StatefulWidget {
-  const MatchScreen({super.key, this.fixed, this.seed, this.searchDuration});
+  const MatchScreen(
+      {super.key, this.fixed, this.seed, this.searchDuration, this.fixedLevel});
 
   final Persona? fixed;
   final int? seed;
+
+  /// 테스트·캡처용 고정 레벨. null이면 저장된 RP·연승으로 정한다.
+  final int? fixedLevel;
 
   /// 찾는 중 연출 길이(테스트에서 0으로).
   final Duration? searchDuration;
@@ -30,6 +35,7 @@ class MatchScreen extends StatefulWidget {
 
 class _MatchScreenState extends State<MatchScreen> {
   Persona? _opponent;
+  int _level = 3;
   bool _boost = true;
   bool _starting = false;
   int _spin = 0;
@@ -44,6 +50,21 @@ class _MatchScreenState extends State<MatchScreen> {
       if (mounted) setState(() => _spin++);
     });
     _revealTimer = Timer(dur, _reveal);
+    _loadLevel();
+  }
+
+  /// 상대 레벨 = 내 RP 티어 + 연승. 저장소를 못 읽는 환경(테스트)이면 기본값.
+  Future<void> _loadLevel() async {
+    if (widget.fixedLevel != null) {
+      _level = widget.fixedLevel!;
+      return;
+    }
+    try {
+      final data = await RecordsStore.load();
+      if (mounted) setState(() => _level = data.opponentLevel);
+    } on Object {
+      // 기본 레벨 유지
+    }
   }
 
   void _reveal() {
@@ -71,7 +92,8 @@ class _MatchScreenState extends State<MatchScreen> {
     final boosted = _boost && wallet != null && await wallet.spend(TokenKind.boost);
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute<void>(builder: (_) => GameScreen(persona: persona, boosted: boosted)),
+      MaterialPageRoute<void>(
+          builder: (_) => GameScreen(persona: persona, boosted: boosted, level: _level)),
     );
   }
 
@@ -114,7 +136,14 @@ class _MatchScreenState extends State<MatchScreen> {
                                         fontWeight: FontWeight.w800,
                                         letterSpacing: 0.4)),
                               ),
-                              PersonaCard(l10n: l10n, persona: opp, onTap: _start),
+                              PersonaCard(
+                                  l10n: l10n, persona: opp, level: _level, onTap: _start),
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(4, 8, 4, 0),
+                                child: Text(l10n.matchLevelHint,
+                                    style: const TextStyle(
+                                        color: AppColors.textMuted, fontSize: 12)),
+                              ),
                             ],
                           ),
                   ),

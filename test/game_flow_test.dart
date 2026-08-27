@@ -7,6 +7,7 @@ import 'package:score_poker/ui/personas.dart';
 import 'package:score_poker/ui/theme.dart';
 import 'package:score_poker/ui/widgets/board_view.dart';
 import 'package:score_poker/ui/widgets/card_back.dart';
+import 'package:score_poker/ui/widgets/joker_card.dart';
 import 'package:score_poker/ui/widgets/veil_chip.dart';
 
 /// **한 판을 실제로 끝까지 눌러 본다.** 도메인 테스트가 통과해도 화면에서
@@ -23,6 +24,17 @@ void main() {
     for (var t = Duration.zero; t < total; t += step) {
       await tester.pump(step);
     }
+  }
+
+  /// 손패에서 **조커가 아닌** 첫 카드의 키를 찾는다 — 조커는 탭하면 선택 시트가 열려
+  /// 보통 배치 흐름이 아니다(조커 흐름은 joker_flow_test가 따로 본다).
+  Finder firstPlainHandCard(WidgetTester tester) {
+    for (var i = 0; i < 6; i++) {
+      final f = labeled('hand-$i');
+      if (f.evaluate().isEmpty) continue;
+      if (find.descendant(of: f, matching: find.byType(JokerFace)).evaluate().isEmpty) return f;
+    }
+    fail('조커 아닌 손패가 없다');
   }
 
   /// [f]가 나타날 때까지(최대 [max]) 시간을 흘린다. 라운드 길이는 상대 AI가 언제
@@ -79,13 +91,14 @@ void main() {
 
       // ── 배치: 손패에서 3장을 골라 세 줄에 한 장씩 ──────────────────────────
       for (var row = 0; row < 3; row++) {
-        await tester.tap(labeled('hand-0'));
+        await tester.tap(firstPlainHandCard(tester));
         await tester.pump();
         await tester.tap(labeled('cell-p0-$row-${round - 1}'),
             warnIfMissed: false);
         await pumpFor(tester, const Duration(milliseconds: 600));
       }
       expect(labeled('hand-'), findsNWidgets(3), reason: '3장 내면 3장 남는다');
+      // 조커를 들고 있으면 배치 수와 무관하게 남는다 — 이 흐름에선 안 쓴다.
 
       // ── 봉인: 2라운드에 한 번, 방금 놓은 카드를 덮어 둔다 ──────────────────
       if (round == 2) {

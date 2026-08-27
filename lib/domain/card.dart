@@ -1,7 +1,8 @@
 /// 카드 도메인 모델 (순수 Dart, Flutter 의존성 없음 → `dart test`로 검증 가능).
 ///
-/// 덱 구성: 표준 포커 덱 52장 — 랭크 2~10, J(11), Q(12), K(13), A(14) × 4 슈트.
-/// 조커는 쓰지 않는다(가림 룰에는 지정·와일드 개념이 없다).
+/// 덱 구성: 표준 포커 덱 52장 — 랭크 2~10, J(11), Q(12), K(13), A(14) × 4 슈트 —
+/// 에 **조커 2장**([PlayingCard.joker]). 조커는 손에서만 존재하고, 판에 놓이는 순간
+/// 주인이 정한 랭크·무늬의 카드가 된다(내 판이면 와일드, 상대 판이면 그 카드를 **바꿔치기**).
 /// A(에이스)의 기본값은 14, 스트레이트에서만 1로도 사용(A-2-3-4-5).
 library;
 
@@ -42,10 +43,17 @@ class Ranks {
 /// 한 장의 카드. 값 객체 — 같은 랭크·슈트면 같은 카드다.
 class PlayingCard {
   const PlayingCard(this.rank, this.suit)
-      : assert(rank >= Ranks.min && rank <= Ranks.max);
+      : assert(rank == jokerRank || (rank >= Ranks.min && rank <= Ranks.max));
+
+  /// 조커. 랭크 0 — 족보 계산에 들어가면 안 된다(판에 놓일 때 실제 카드로 바뀐다).
+  const PlayingCard.joker() : this(jokerRank, Suit.spades);
+
+  static const int jokerRank = 0;
 
   final int rank;
   final Suit suit;
+
+  bool get isJoker => rank == jokerRank;
 
   /// 점수 계산용 숫자값. (A = 14)
   int get value => rank;
@@ -54,6 +62,7 @@ class PlayingCard {
       PlayingCard(rank ?? this.rank, suit ?? this.suit);
 
   String get label {
+    if (isJoker) return 'JOKER';
     final r = switch (rank) {
       Ranks.jack => 'J',
       Ranks.queen => 'Q',

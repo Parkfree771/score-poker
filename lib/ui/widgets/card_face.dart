@@ -4,6 +4,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../../domain/card.dart';
 import '../theme.dart';
 import 'card_back.dart';
+import 'joker_card.dart';
 import 'suit_glyphs.dart';
 
 String rankLabel(int rank) => switch (rank) {
@@ -30,6 +31,7 @@ class CardFace extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (card.isJoker) return JokerFace(size: size);
     final w = size;
     final h = heightFor(size);
     final red = suitIsRed(card.suit);

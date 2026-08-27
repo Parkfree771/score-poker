@@ -21,6 +21,11 @@ export 'board.dart';
 ///       아껴 두었다가 **상대가 숨긴 카드를 열어보는 데** 쓴다. 숨기기와 열어보기가 같은
 ///       주머니에서 나오므로 "지금 숨길까, 나중에 읽을까"의 상충이 생긴다.
 /// - R5) 마지막 라운드까지 끝나면 남은 뒷면 카드를 전부 여는 **최후 공개** 후 정산한다.
+/// - R6) **조커 [jokers]장**(덱에 섞여 손에 들어온다). 두 가지 쓰임:
+///       ① **와일드** — 내 빈 칸에 원하는 랭크·무늬로 놓는다([placeWild], 3장 배치의 하나,
+///          뒷면·숨기기 가능). ② **강타** — 상대 판의 **이미 놓인 카드**(공개·비공개 무관)를
+///          내가 정한 카드로 **바꿔치기**한다([declareStrike]). 강타는 3장 배치와 **별도 행동**이며
+///          공개 때 기본 3장이 뒤집힌 뒤 발동한다([resolveStrikes]). 바뀐 카드는 앞면이 된다.
 ///
 /// **부스트**(상점 상품, 판당 1개까지 — [ScoreGame.deal]의 `boostFor`): 그 판에서
 /// 비공개권 칩이 +1(3→4), **손패 스왑** 1회. 스왑은 이번 라운드에 **받은 카드 전부**를
@@ -37,10 +42,11 @@ class ScoreGame {
   static const int startHand = 6;
   static const int refill = 3;
   static const int veilsPerMatch = 3;
+  static const int jokers = 2;
 
   /// 52장 덱으로 시작, 각자 [startHand]장 딜. [boostFor]가 있으면 그 쪽만 부스트 판이다.
-  factory ScoreGame.deal({int? seed, PlayerId? boostFor}) {
-    final g = ScoreGame._(Deck.shuffled(seed: seed));
+  factory ScoreGame.deal({int? seed, PlayerId? boostFor, int jokers = ScoreGame.jokers}) {
+    final g = ScoreGame._(Deck.shuffled(seed: seed, jokers: jokers));
     if (boostFor != null) {
       g.veilLeft[boostFor] = veilsPerMatch + 1;
       g.swapLeft[boostFor] = 1;
@@ -135,18 +141,89 @@ class ScoreGame {
       leftToPlace(PlayerId.p0) <= 0 && leftToPlace(PlayerId.p1) <= 0;
 
   /// [p]의 손패 [handIndex]를 자기 필드 빈 칸에 **뒷면**으로 놓는다.
-  /// 라운드당 정확히 [perRound]장까지.
+  /// 라운드당 정확히 [perRound]장까지. 조커는 [placeWild]로만 놓는다.
   void place(PlayerId p, int handIndex, int row, int col) {
+    if (hands[p]![handIndex].isJoker) throw StateError('조커는 카드를 정해서 놓는다');
+    _placeSlot(p, handIndex, row, col, hands[p]![handIndex], wild: false);
+  }
+
+  /// 조커를 내 빈 칸에 [as] 카드로 놓는다(와일드). 3장 배치의 하나로 센다.
+  void placeWild(PlayerId p, int handIndex, int row, int col, PlayingCard as) {
+    if (!hands[p]![handIndex].isJoker) throw StateError('조커가 아니다');
+    if (as.isJoker) throw StateError('조커를 조커로 지정할 수 없다');
+    _placeSlot(p, handIndex, row, col, as, wild: true);
+  }
+
+  void _placeSlot(PlayerId p, int handIndex, int row, int col, PlayingCard card,
+      {required bool wild}) {
     if (revealDone) throw StateError('공개 후에는 배치할 수 없다');
     if (leftToPlace(p) <= 0) throw StateError('이번 라운드 배치는 $perRound장까지다');
     if (fields[p]![row][col] != null) throw StateError('빈 칸이 아니다');
-    final card = hands[p]!.removeAt(handIndex);
-    fields[p]![row][col] = VeiledSlot(card, round: round);
+    hands[p]!.removeAt(handIndex);
+    fields[p]![row][col] = VeiledSlot(card, round: round, wild: wild);
+  }
+
+  /// 이번 라운드에 예고된 강타(공개 때 발동). 위치는 상대에게 실시간으로 보인다 —
+  /// 뒷면 배치와 같은 원칙(어디에 두는지는 노출, 무엇으로 바꾸는지는 비공개).
+  final Map<PlayerId, List<JokerStrike>> pendingStrikes = {
+    PlayerId.p0: [],
+    PlayerId.p1: [],
+  };
+
+  /// 마지막 [reveal]/[resolveStrikes]에서 실제로 발동한 강타(연출용).
+  List<JokerStrike> lastStrikes = const [];
+
+  /// [p]가 손패의 조커 [handIndex]로 상대 카드 ([row],[col])를 [as]로 바꾸겠다고 예고한다.
+  /// 표적은 **이미 놓인 카드**(빈 칸 불가, 공개·비공개 무관). 3장 배치와 별도 행동.
+  void declareStrike(PlayerId p, int handIndex, int row, int col, PlayingCard as) {
+    if (revealDone) throw StateError('공개 후에는 강타할 수 없다');
+    if (!hands[p]![handIndex].isJoker) throw StateError('조커가 아니다');
+    if (as.isJoker) throw StateError('조커를 조커로 지정할 수 없다');
+    if (fields[p.other]![row][col] == null) throw StateError('빈 칸은 강타할 수 없다');
+    if (pendingStrikes[p]!.any((s) => s.row == row && s.col == col)) {
+      throw StateError('이미 강타를 예고한 카드다');
+    }
+    hands[p]!.removeAt(handIndex);
+    pendingStrikes[p]!.add(JokerStrike(by: p, row: row, col: col, card: as));
+  }
+
+  /// 예고한 강타를 물린다 — 조커가 손으로 돌아온다(공개 전까지 자유).
+  void cancelStrike(PlayerId p, int row, int col) {
+    final list = pendingStrikes[p]!;
+    final i = list.indexWhere((s) => s.row == row && s.col == col);
+    if (i < 0) throw StateError('예고한 강타가 없다');
+    list.removeAt(i);
+    hands[p]!.add(const PlayingCard.joker());
+  }
+
+  /// 예고된 강타를 발동한다: 표적 카드가 지정 카드로 바뀌고 **앞면**이 된다
+  /// (숨겨져 있었어도 드러난다 — 원래 카드는 사라진다). 발동 목록을 돌려준다.
+  List<JokerStrike> resolveStrikes() {
+    final done = <JokerStrike>[];
+    for (final p in PlayerId.values) {
+      for (final s in List.of(pendingStrikes[p]!)) {
+        done.add(resolveStrike(p, s.row, s.col));
+      }
+    }
+    lastStrikes = done;
+    return done;
+  }
+
+  /// 예고된 강타 하나를 발동한다(UI가 한 방씩 연출할 때).
+  JokerStrike resolveStrike(PlayerId by, int row, int col) {
+    final list = pendingStrikes[by]!;
+    final i = list.indexWhere((s) => s.row == row && s.col == col);
+    if (i < 0) throw StateError('예고한 강타가 없다');
+    final s = list.removeAt(i);
+    final old = fields[by.other]![row][col]!;
+    fields[by.other]![row][col] = VeiledSlot(s.card, round: old.round, faceUp: true, strikeBy: by);
+    return s;
   }
 
   /// 동시 공개: 이번 라운드에 놓인 카드 중 [hidden]에 지정된 것만 빼고 뒤집는다.
-  /// 숨긴 장수만큼 비공개권이 깎인다.
-  void reveal(Map<PlayerId, Set<(int, int)>> hidden) {
+  /// 숨긴 장수만큼 비공개권이 깎인다. 그 다음 예고된 강타가 발동한다 —
+  /// UI가 연출을 사이에 끼우려면 [deferStrikes]로 미루고 [resolveStrikes]를 직접 부른다.
+  void reveal(Map<PlayerId, Set<(int, int)>> hidden, {bool deferStrikes = false}) {
     if (revealDone) throw StateError('이미 공개했다');
     if (!allPlaced) throw StateError('아직 배치가 끝나지 않았다');
     for (final p in PlayerId.values) {
@@ -169,6 +246,7 @@ class ScoreGame {
       }
     }
     revealDone = true;
+    if (!deferStrikes) resolveStrikes();
   }
 
   /// [p]가 비공개권 1개로 **상대의 숨긴 카드**를 공개시킨다(모두에게 보인다).
@@ -262,9 +340,25 @@ class ScoreGame {
 }
 
 /// 필드 한 칸: 카드 + 공개 여부 + 놓인 라운드.
+/// [wild]는 주인이 조커로 지정해 놓은 카드, [strikeBy]는 상대의 강타로 바뀐 카드.
 class VeiledSlot {
-  VeiledSlot(this.card, {required this.round, this.faceUp = false});
+  VeiledSlot(this.card,
+      {required this.round, this.faceUp = false, this.wild = false, this.strikeBy});
   final PlayingCard card;
   final int round;
   bool faceUp;
+  final bool wild;
+  final PlayerId? strikeBy;
+
+  /// 조커가 관여한 칸(와일드·강타) — 카드 위에 조커 배지가 붙는다.
+  bool get jokered => wild || strikeBy != null;
+}
+
+/// 예고된 조커 강타: [by]가 상대 판 ([row],[col])의 카드를 [card]로 바꾼다.
+class JokerStrike {
+  const JokerStrike({required this.by, required this.row, required this.col, required this.card});
+  final PlayerId by;
+  final int row;
+  final int col;
+  final PlayingCard card;
 }

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../domain/card.dart';
 import 'card_back.dart';
 import 'card_face.dart';
+import 'joker_card.dart';
 
 /// 손패의 카드가 보드 칸으로 **날아가 안착**하는 오버레이 애니메이션.
 ///
@@ -20,6 +21,7 @@ Future<void> flyCard({
   Curve curve = Curves.easeInOutCubic, // 돌진(공격)은 easeIn으로 가속감을 준다.
   bool trail = false, // 잔상 2장 — 빠른 돌진의 속도감용.
   bool faceDown = false, // 뒷면으로 비행(쇼다운 모드의 숨김 배치).
+  bool joker = false, // 조커 강타 비행 — 뒷면 위에 보라 별 링.
 }) async {
   final controller = AnimationController(vsync: vsync, duration: duration);
   final move = CurvedAnimation(parent: controller, curve: curve);
@@ -52,7 +54,7 @@ Future<void> flyCard({
                 child: FittedBox(
                   fit: BoxFit.contain,
                   child: faceDown
-                      ? const CardBack(size: 120)
+                      ? (joker ? const JokerBack(size: 120) : const CardBack(size: 120))
                       : CardFace(card: card, size: 120),
                 ),
               ),
