@@ -239,7 +239,7 @@ class _ModeCard extends StatelessWidget {
     this.badge,
   });
 
-  /// 모드 로티(doodle-motif 재채색 — AI는 차가운 시안 회로, 사람은 따뜻한 브라스).
+  /// 모드 로티(wired-lineal 재채색 — AI는 스페이드 카드, 사람은 하트 칩).
   final String asset;
 
   /// 아이콘 뒤 은은한 원 배경색.
@@ -260,15 +260,19 @@ class _ModeCard extends StatelessWidget {
         child: ListTile(
           contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           leading: Container(
-            width: 56,
-            height: 56,
-            padding: const EdgeInsets.all(4),
+            width: 68,
+            height: 68,
+            padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: Color.alphaBlend(glow.withValues(alpha: 0.18), AppColors.panel),
               border: Border.all(color: glow.withValues(alpha: 0.55), width: 1.2),
             ),
-            child: Lottie.asset(asset, repeat: true, fit: BoxFit.contain),
+            // RepaintBoundary: 로티는 초당 수십 번 다시 칠해진다 — 홈 전체로 번지면 안 된다.
+            child: RepaintBoundary(
+              child: Lottie.asset(asset,
+                  repeat: true, fit: BoxFit.contain, frameRate: const FrameRate(30)),
+            ),
           ),
           title: Row(
             children: [

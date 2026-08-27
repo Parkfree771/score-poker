@@ -38,11 +38,14 @@ class LevelStars extends StatelessWidget {
                 width: size,
                 height: size,
                 child: i < lit
-                    ? Lottie.asset(
-                        'assets/lottie/level_star.json',
-                        animate: animate,
-                        repeat: true,
-                        fit: BoxFit.contain,
+                    ? RepaintBoundary(
+                        child: Lottie.asset(
+                          'assets/lottie/level_star.json',
+                          animate: animate,
+                          repeat: true,
+                          fit: BoxFit.contain,
+                          frameRate: const FrameRate(30),
+                        ),
                       )
                     : Icon(Icons.star_border_rounded,
                         size: size * 0.92, color: AppColors.gaugeOff),

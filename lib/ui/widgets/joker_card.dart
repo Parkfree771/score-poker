@@ -142,11 +142,15 @@ class JokerGlyph extends StatelessWidget {
   final bool animate;
 
   @override
-  Widget build(BuildContext context) => Lottie.asset(
-        'assets/lottie/joker_card.json',
-        animate: animate,
-        repeat: true,
-        fit: BoxFit.contain,
+  Widget build(BuildContext context) => RepaintBoundary(
+        // 손패의 조커는 계속 뛰므로 자기 레이어에서만 다시 칠한다(보드로 번지지 않게).
+        child: Lottie.asset(
+          'assets/lottie/joker_card.json',
+          animate: animate,
+          repeat: true,
+          fit: BoxFit.contain,
+          frameRate: const FrameRate(30),
+        ),
       );
 }
 

@@ -12,6 +12,7 @@ import '../domain/hand.dart';
 import '../domain/records.dart';
 import '../domain/scoring.dart';
 import '../feedback/haptics.dart';
+import '../monetization/monetization.dart';
 import '../l10n/app_localizations.dart';
 import 'fx_lab.dart';
 import 'widgets/level_stars.dart';
@@ -156,7 +157,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   void initState() {
     super.initState();
     g = widget.initialGame ??
-        ScoreGame.deal(seed: widget.seed, boostFor: widget.boosted ? me : null);
+        ScoreGame.deal(seed: widget.seed, boostFor: _boosted ? me : null);
     if (_frozen) {
       // 주입된 상태를 그대로 보여준다 — 진행은 하지 않는다.
       _dealtMine = g.hands[me]!.length;
@@ -190,12 +191,42 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// 주입된 상태를 보여 주는 정지 모드인가.
   bool get _frozen => widget.initialGame != null;
 
-  void _restart() {
+  /// **이 판**이 부스트 판인가. 첫 판은 매칭 화면이 토큰을 쓰고 넘겨주지만,
+  /// "다시 하기"는 여기서 다시 하나 쓴다 — 토큰 하나로 무한히 부스트 판을 돌리면 안 된다.
+  late bool _boosted = widget.boosted;
+
+  /// 부스트 토큰을 썼는데 아직 아무 행동도 안 했는가(이탈하면 돌려준다).
+  bool get _boostUnused =>
+      _boosted &&
+      g.round == 0 &&
+      g.leftToPlace(me) == ScoreGame.perRound &&
+      g.swapLeft[me] == 1 &&
+      _hideMarks.isEmpty;
+
+  /// 화면을 떠날 때 — 부스트를 쓰고 한 수도 안 뒀으면 토큰을 돌려준다.
+  void _refundBoostIfUnused() {
+    if (_frozen || !_boostUnused) return;
+    _boosted = false;
+    final wallet = MonetizationScope.maybeOf(context)?.wallet;
+    if (wallet != null) unawaited(wallet.refund(TokenKind.boost));
+  }
+
+  @visibleForTesting
+  Future<void> restartForTest() => _restart();
+
+  Future<void> _restart() async {
     if (_frozen) return;
+    if (widget.boosted) {
+      // 새 판도 부스트로 — 토큰이 있으면 하나 더 쓰고, 없으면 보통 판.
+      final wallet = MonetizationScope.maybeOf(context)?.wallet;
+      _boosted = wallet != null && await wallet.spend(TokenKind.boost);
+      if (!mounted) return;
+      if (!_boosted) _snack(AppLocalizations.of(context).boostNone);
+    }
     _seq++;
     _ticker?.cancel();
     setState(() {
-      g = ScoreGame.deal(seed: widget.seed, boostFor: widget.boosted ? me : null);
+      g = ScoreGame.deal(seed: widget.seed, boostFor: _boosted ? me : null);
       _phase = _Phase.dealing;
       selected = null;
       _flyingHandIndex = null;
@@ -1186,7 +1217,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     final l10n = AppLocalizations.of(context);
     final size = MediaQuery.sizeOf(context);
     final landscape = size.width > size.height;
-    return Scaffold(
+    return PopScope(
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) _refundBoostIfUnused();
+      },
+      child: Scaffold(
       body: DecoratedBox(
         decoration: const BoxDecoration(gradient: AppColors.bgGradient),
         child: SafeArea(
@@ -1235,6 +1270,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             ],
           ),
         ),
+      ),
       ),
     );
   }

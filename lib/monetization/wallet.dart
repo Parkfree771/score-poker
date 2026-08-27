@@ -96,8 +96,17 @@ class TokenWallet extends ChangeNotifier {
   }
 
   /// 오늘 받은 광고 보상 횟수(기기 로컬 날짜 기준).
-  int adRewardsToday({DateTime? now}) =>
-      _data.adYmd == _ymd(now ?? DateTime.now()) ? _data.adCount : 0;
+  int adRewardsToday({DateTime? now}) => _adCountFor(_ymd(now ?? DateTime.now()));
+
+  /// [today] 기준 누적 횟수. 마지막 보상 날짜가 **오늘보다 미래**면(시계를 뒤로 돌린 것)
+  /// 캡에 닿은 것으로 본다 — 날짜를 오갈 때마다 +2씩 받는 구멍을 막는다.
+  int _adCountFor(int today) {
+    final last = _data.adYmd;
+    if (last == null) return 0;
+    if (last == today) return _data.adCount;
+    if (last > today) return policy.adDailyCap;
+    return 0;
+  }
 
   /// 오늘 더 받을 수 있는 광고 보상 횟수.
   int adRewardsLeftToday({DateTime? now}) =>
@@ -111,11 +120,12 @@ class TokenWallet extends ChangeNotifier {
     if (!_loaded) await load();
     final today = _ymd(now ?? DateTime.now());
     if (_data.deliveredAdRewardIds.contains(rewardId)) return false;
-    final count = _data.adYmd == today ? _data.adCount : 0;
+    final count = _adCountFor(today);
     if (count >= policy.adDailyCap) return false;
     _data = _data.copyWith(
       balances: _data.balances.plus(policy.adReward),
-      adYmd: today,
+      // 시계가 뒤로 간 상태라면 기록 날짜는 앞선 그대로 둔다(되돌아와도 캡 유지).
+      adYmd: (_data.adYmd ?? 0) > today ? _data.adYmd : today,
       adCount: count + 1,
       deliveredAdRewardIds: [..._data.deliveredAdRewardIds, rewardId],
     );
@@ -133,6 +143,15 @@ class TokenWallet extends ChangeNotifier {
     await _store.save(_data);
     notifyListeners();
     return true;
+  }
+
+  /// 쓴 토큰을 돌려준다 — 판을 시작해 놓고 **아무 것도 안 하고 나간** 경우에만
+  /// (게임 화면이 판단). 부스트를 잃는 것은 환불 문의로 돌아온다.
+  Future<void> refund(TokenKind kind) async {
+    final next = {..._data.balances}..[kind] = balanceOf(kind) + 1;
+    _data = _data.copyWith(balances: next);
+    await _store.save(_data);
+    notifyListeners();
   }
 
   /// 구매를 토큰으로 바꿔준다.

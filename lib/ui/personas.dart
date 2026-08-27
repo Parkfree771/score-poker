@@ -282,13 +282,16 @@ class PersonaIcon extends StatelessWidget {
     return SizedBox(
       width: size,
       height: size,
-      child: Lottie.asset(
-        asset,
-        animate: animate,
-        repeat: true,
-        fit: BoxFit.contain,
-        delegates:
-            colorOverrides == null ? null : LottieDelegates(values: colorOverrides!),
+      child: RepaintBoundary(
+        child: Lottie.asset(
+          asset,
+          animate: animate,
+          repeat: true,
+          fit: BoxFit.contain,
+          frameRate: const FrameRate(30),
+          delegates:
+              colorOverrides == null ? null : LottieDelegates(values: colorOverrides!),
+        ),
       ),
     );
   }

@@ -109,7 +109,10 @@ class Monetization {
     if (_adBusy) return AdRewardOutcome.busy;
     _adBusy = true;
     try {
-      if (!wallet.isLoading && wallet.adRewardsLeftToday(now: now) <= 0) {
+      // 지갑이 아직 로드 전이면 기다린다 — 캡 확인 없이 광고를 보여 주고 나서
+      // 지급이 거절되면 "끝까지 봤는데 못 받았다"가 된다.
+      if (wallet.isLoading) await wallet.load();
+      if (wallet.adRewardsLeftToday(now: now) <= 0) {
         return AdRewardOutcome.capReached;
       }
       final rewardId = 'ad-${DateTime.now().millisecondsSinceEpoch}-${_adSeq++}';

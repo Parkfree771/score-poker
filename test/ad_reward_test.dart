@@ -67,6 +67,28 @@ void main() {
       expect(b.balanceOf(TokenKind.boost), 5);
     });
 
+    test('시계를 뒤로 돌려도 캡은 유지된다(날짜를 오가며 +2씩 받는 구멍)', () async {
+      final w = TokenWallet();
+      await w.load();
+      final day = DateTime(2026, 8, 27);
+      await w.grantAdReward(rewardId: 'a', now: day);
+      await w.grantAdReward(rewardId: 'b', now: day);
+      final yesterday = day.subtract(const Duration(days: 1));
+      expect(w.adRewardsLeftToday(now: yesterday), 0, reason: '기록 날짜가 미래면 캡');
+      expect(await w.grantAdReward(rewardId: 'c', now: yesterday), isFalse);
+      expect(w.adRewardsLeftToday(now: day), 0, reason: '다시 돌아와도 캡');
+      expect(w.adRewardsLeftToday(now: day.add(const Duration(days: 1))), 2, reason: '진짜 다음 날은 초기화');
+    });
+
+    test('환불: 부스트를 돌려주면 잔량 +1', () async {
+      final w = TokenWallet();
+      await w.load();
+      final before = w.balanceOf(TokenKind.boost);
+      expect(await w.spend(TokenKind.boost), isTrue);
+      await w.refund(TokenKind.boost);
+      expect(w.balanceOf(TokenKind.boost), before);
+    });
+
     test('정책으로 광고 보상을 끌 수 있다(캡 0)', () async {
       final w = TokenWallet(policy: const TokenGrantPolicy(adDailyCap: 0));
       await w.load();

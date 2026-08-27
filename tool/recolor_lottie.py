@@ -64,14 +64,13 @@ recolor('wired-lineal-237-star-rating-hover-pinch.json', 'level_star.json', {
     ('#121331', '*'): '#4a3410',
 })
 
-# ---- 홈 모드 카드 (doodle-motif: #2a306b 선 · #e68e6e 살구 면 · #ff0000 면 · #434343 면)
-# 사람 vs AI: 네트워크 노드 — 차가운 시안 선 + 틸 면 ("기계·회로")
-recolor('doodle-motif-345-business-network-hover-pinch.json', 'mode_ai.json', {
-    ('#2a306b', 'st'): '#5fd3e6', ('#e68e6e', 'fl'): '#2f9ea8', ('#e68e6e', 'st'): '#5fd3e6',
-    ('#ff0000', 'fl'): '#0f2b33',
+# ---- 홈 모드 카드 — 게임 안의 물건으로(인게임 조커·칩과 같은 wired-lineal 계열).
+# 사람 vs AI: 스페이드 카드 두 장 — 크림 카드 + 웜 블랙 스페이드(차가운 쪽)
+recolor('wired-lineal-3156-cards-spade-hover-pinch.json', 'mode_ai.json', {
+    ('#121331', 'st'): '#26251c', ('#ebe6ef', 'fl'): '#f5efdf', ('#3a3347', 'fl'): '#2f2b24',
 })
-# 사람 vs 사람: 세 사람 — 따뜻한 크림 선 + 브라스 면 + 살빛 ("사람·온기")
-recolor('doodle-motif-586-male-and-two-female-hover-nodding.json', 'mode_human.json', {
-    ('#2a306b', 'st'): '#efe3c4', ('#e68e6e', 'fl'): '#d6b25c', ('#e68e6e', 'st'): '#efe3c4',
-    ('#ff0000', 'fl'): '#e9c9a1', ('#434343', 'fl'): '#3b2a10',
+# 사람 vs 사람: 하트 칩 — 브라스 몸통 + 크림 노치 + 카드 레드 하트(따뜻한 쪽)
+recolor('wired-lineal-3171-heart-chip-hover-pinch.json', 'mode_human.json', {
+    ('#121331', 'st'): '#26251c', ('#f24c00', 'fl'): '#d6b25c', ('#ebe6ef', 'fl'): '#efe3c4',
+    ('#ff0000', 'fl'): '#c63d2f',
 })
