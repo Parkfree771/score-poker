@@ -68,12 +68,7 @@ class JokerFace extends StatelessWidget {
             child: SizedBox(
               width: w * 0.64,
               height: w * 0.64,
-              child: Lottie.asset(
-                'assets/lottie/joker_card.json',
-                animate: animate,
-                repeat: true,
-                fit: BoxFit.contain,
-              ),
+              child: JokerGlyph(animate: animate),
             ),
           ),
           Positioned(left: w * 0.13, top: h * 0.04, child: _corner(ink, w)),
@@ -122,49 +117,40 @@ class JokerBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 크림 원 위 광대 모자(로티, 정지 프레임) — 손패 조커와 같은 문양이라 한눈에 이어진다.
     return Container(
       width: size,
       height: size,
+      padding: EdgeInsets.all(size * 0.1),
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: JokerColors.purpleDeep,
-        border: Border.all(color: pending ? color : JokerColors.gold, width: pending ? 2.2 : 1.4),
+        color: AppColors.cardBody,
+        border: Border.all(color: pending ? color : AppColors.gold, width: pending ? 2.2 : 1.4),
         boxShadow: [
           BoxShadow(color: color.withValues(alpha: pending ? 0.7 : 0.35), blurRadius: pending ? 10 : 4),
         ],
       ),
-      child: const CustomPaint(painter: _StarPainter(JokerColors.gold, JokerColors.lime)),
+      child: const JokerGlyph(animate: false),
     );
   }
 }
 
-/// 다섯 꼭짓점 별 + 가운데 점. 회전 없음(정지 화면에서도 같은 모양 — 골든 재현).
-class _StarPainter extends CustomPainter {
-  const _StarPainter(this.fill, this.dot);
-  final Color fill;
-  final Color dot;
+/// 광대 모자 로티 문양 — 손패 조커·배지·비행 뒷면이 전부 이 하나를 쓴다.
+/// [animate]가 false면 첫 프레임 정지(배지 여러 개가 동시에 뛰면 산만하고, 골든도 흔들린다).
+class JokerGlyph extends StatelessWidget {
+  const JokerGlyph({super.key, this.animate = true});
+  final bool animate;
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final c = size.center(Offset.zero);
-    final r = size.shortestSide * 0.42;
-    final path = Path();
-    for (var i = 0; i < 10; i++) {
-      final a = -math.pi / 2 + i * math.pi / 5;
-      final rr = i.isEven ? r : r * 0.45;
-      final p = Offset(c.dx + rr * math.cos(a), c.dy + rr * math.sin(a));
-      i == 0 ? path.moveTo(p.dx, p.dy) : path.lineTo(p.dx, p.dy);
-    }
-    path.close();
-    canvas.drawPath(path, Paint()..color = fill);
-    canvas.drawCircle(c, r * 0.16, Paint()..color = dot);
-  }
-
-  @override
-  bool shouldRepaint(_StarPainter old) => old.fill != fill || old.dot != dot;
+  Widget build(BuildContext context) => Lottie.asset(
+        'assets/lottie/joker_card.json',
+        animate: animate,
+        repeat: true,
+        fit: BoxFit.contain,
+      );
 }
 
-/// 조커 뒷면 — 강타가 상대 카드로 날아갈 때 쓰는 비행체(보통 뒷면에 보라 링).
+/// 조커 뒷면 — 강타가 상대 카드로 날아갈 때 쓰는 비행체(뒷면 위 크림 원 + 광대).
 class JokerBack extends StatelessWidget {
   const JokerBack({super.key, required this.size});
   final double size;
@@ -178,12 +164,13 @@ class JokerBack extends StatelessWidget {
         Container(
           width: size * 0.5,
           height: size * 0.5,
+          padding: EdgeInsets.all(size * 0.05),
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: JokerColors.purpleDeep.withValues(alpha: 0.92),
-            border: Border.all(color: JokerColors.gold, width: 1.6),
+            color: AppColors.cardBody,
+            border: Border.all(color: AppColors.gold, width: 1.6),
           ),
-          child: const CustomPaint(painter: _StarPainter(JokerColors.gold, JokerColors.lime)),
+          child: const JokerGlyph(),
         ),
       ],
     );

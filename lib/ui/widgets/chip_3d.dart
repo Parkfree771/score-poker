@@ -315,10 +315,11 @@ class ChipFlightSprite extends StatelessWidget {
   }
 }
 
-/// 칩 **던지기** — 레일에서 상대 카드로 부드럽게 날아간다.
+/// 칩 **슛** — 레일에서 상대 카드로 **직선으로 쏘아** 날아간다.
 ///
-/// 거의 등속으로 포물선을 그리며, 진행 방향과 직각인 축으로 옆면→정면 반 바퀴 돈다.
-/// 잔상 2장이 속도감을 준다. [to]에 닿는 순간 끝난다 — 그 프레임에 "팅".
+/// 포물선이 아니다: 출발에서 가속해 끝까지 속도가 살아 있고(easeIn), 뒤로 빛 궤적
+/// (진행 방향으로 길게 늘어진 그라데이션)과 잔상이 따라붙는다. 진행 방향과 직각인
+/// 축으로 옆면→정면 반 바퀴 돈다. [to]에 닿는 순간 끝난다 — 그 프레임에 "팅".
 Future<void> tossChip({
   required OverlayState overlay,
   required TickerProvider vsync,
@@ -326,25 +327,56 @@ Future<void> tossChip({
   required Offset to,
   required double diameter,
   required Color ring,
-  Duration duration = const Duration(milliseconds: 470),
+  Duration duration = const Duration(milliseconds: 300),
 }) {
   final dir = to - from;
   final dist = dir.distance;
   final ang = math.atan2(dir.dy, dir.dx);
-  final apex = (dist * 0.34).clamp(44.0, 150.0);
+  final unit = dist == 0 ? Offset.zero : dir / dist;
 
   _Pose poseAt(double t) {
     t = t.clamp(0.0, 1.0);
-    // 수평: 거의 등속, 끝에서 살짝 빨라진다 — 닿는 순간까지 속도가 살아 있어야 "팅"이 선다.
-    final u = t * (0.86 + 0.14 * t);
-    // 수직: 정점이 45% 지점인 비대칭 포물선(중력).
-    final hgt = apex * 4 * t * (1 - t) * (1 + 0.2 * (0.45 - t));
+    // 직선 가속: 처음 살짝 밀렸다가(0.12) 끝으로 갈수록 빨라진다.
+    final u = Curves.easeInQuad.transform(t);
     return _Pose(
       center: from + dir * u,
-      height: hgt.clamp(0.0, apex * 1.2),
-      pitch: 2 * math.pi * 2.5 * t + 0.35,
+      // 테이블에서 아주 살짝 떠서 간다(그림자만 분리될 정도).
+      height: 8 * math.sin(math.pi * t),
+      pitch: 2 * math.pi * 2.0 * t + 0.35,
       axisAngle: ang + math.pi / 2,
-      spin: 1.1 * t,
+      spin: 0.8 * t,
+    );
+  }
+
+  /// 빛 궤적 — 칩 뒤로 늘어진 막대. 속도(du/dt)에 비례해 길어지고 끝은 투명하다.
+  Widget streakAt(double t) {
+    final p = poseAt(t);
+    final speed = 2 * t; // easeInQuad의 미분(0→2)
+    final len = (dist * 0.42 * speed).clamp(0.0, 170.0);
+    if (len < 2) return const SizedBox.shrink();
+    final head = p.center - Offset(0, p.height);
+    final center = head - unit * (len / 2);
+    final thick = diameter * 0.55;
+    return Positioned(
+      left: center.dx - len / 2,
+      top: center.dy - thick / 2,
+      width: len,
+      height: thick,
+      child: IgnorePointer(
+        child: Transform.rotate(
+          angle: ang,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(thick),
+              gradient: LinearGradient(colors: [
+                ring.withValues(alpha: 0),
+                ring.withValues(alpha: 0.35),
+                Colors.white.withValues(alpha: 0.85),
+              ], stops: const [0, 0.55, 1]),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -374,9 +406,10 @@ Future<void> tossChip({
 
   return _runOverlay(overlay, vsync, duration, (t) {
     return Stack(children: [
-      if (t > 0.12) ...[
-        spriteAt(t - 0.09, ghost: 0.14),
-        spriteAt(t - 0.045, ghost: 0.3),
+      streakAt(t),
+      if (t > 0.1) ...[
+        spriteAt(t - 0.08, ghost: 0.12),
+        spriteAt(t - 0.04, ghost: 0.28),
       ],
       spriteAt(t),
     ]);

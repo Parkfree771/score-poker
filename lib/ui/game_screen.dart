@@ -1070,7 +1070,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// 열어보기 연출 — 세 박자. 유치한 폭발 없이, 소리와 타이밍으로만.
   ///
   /// 1. **슛**: 레일의 마지막 칩이 제자리에서 튀어 오른다(chipFlick).
-  /// 2. **비행**: 3D 칩이 포물선을 그리며 구르듯 날아간다(chipWhoosh).
+  /// 2. **슛**: 3D 칩이 빛 궤적을 남기며 직선으로 쏘아진다(chipShot).
   /// 3. **팅**: 닿는 프레임에 금속 벨 소리(chipTing)와 함께 칩이 되튀어 통통 구르다
   ///    사라지고, 카드는 제자리에서 앞면으로 뒤집힌다. 칩은 남지 않는다.
   ///
@@ -1099,7 +1099,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     // 2) 비행 — 3D 칩이 포물선으로 구르며 날아간다.
     final from = _rectFor(chipKey), to = _rectFor(cellKey);
     if (from != null && to != null) {
-      _playSfx(Sfx.chipWhoosh);
+      _playSfx(Sfx.chipShot);
       await tossChip(
         overlay: Overlay.of(context),
         vsync: this,
