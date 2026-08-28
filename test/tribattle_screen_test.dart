@@ -21,14 +21,15 @@ void main() {
     final state = tester.state(find.byType(TriBattleScreen))
         as dynamic; // ignore: avoid_dynamic_calls
     final TriGame g = state.game as TriGame;
-    expect(g.market.length, TriRules.marketSize);
+    expect(g.market.whereType<TriCard>().length, TriRules.marketSize);
     expect(g.turnOwner, isTrue, reason: '첫 라운드는 내가 선픽');
 
-    // 내 픽: 마켓 첫 카드를 0번 열에 배치.
-    final card0 = g.market[0];
+    // 내 픽: 마켓 첫 슬롯 카드를 0번 열에 배치.
+    final card0 = g.market[0]!;
     state.myPlaceForTest(0, 0);
     await tester.pump();
     expect(g.rowA[0]?.value, card0.value, reason: '내 배치가 열에 반영');
+    expect(g.market[0], isNull, reason: '픽된 슬롯은 빈 홈으로 남는다');
     expect(g.openA.contains(0), isFalse, reason: '이번 라운드에 채운 열');
 
     // 봇 턴(다음 2픽)이 돌아 내 차례로 돌아온다.

@@ -113,7 +113,7 @@ void main() {
       g.applyPendingResult();
       final (i, c) = bot.choose(g)!;
       final before = g.rowOf(g.leaderIsA)[c]!.value;
-      final card = g.market[i].value;
+      final card = g.market[i]!.value;
       expect(g.pickAndPlace(i, c), isTrue, reason: '2라운드는 합체');
       expect(g.rowOf(!g.turnOwner! ? g.leaderIsA : !g.leaderIsA), anything);
       // 방금 얹은 열의 값 = 기존 + 새 카드.

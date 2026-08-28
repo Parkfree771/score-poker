@@ -57,7 +57,9 @@ class _TriBattleScreenState extends State<TriBattleScreen>
   /// 살아 있는 오버레이 연출(컨트롤러, 엔트리) — 화면이 닫히면 일괄 정리한다.
   /// (비행 중 dispose되면 ticker가 새는 것을 막는다.)
   final _fx = <(AnimationController, OverlayEntry)>[];
-  final _marketKeys = <GlobalKey>[];
+  final _marketKeys = [
+    for (var i = 0; i < TriRules.marketSize; i++) GlobalKey()
+  ];
   final _cellKeysA = [for (var i = 0; i < TriRules.cols; i++) GlobalKey()];
   final _cellKeysB = [for (var i = 0; i < TriRules.cols; i++) GlobalKey()];
 
@@ -112,15 +114,8 @@ class _TriBattleScreenState extends State<TriBattleScreen>
     ceremony = false;
     gameOver = false;
     rowBanner = null;
-    _syncMarketKeys();
     _playSfx(Sfx.shuffle);
     _maybeBotTurn();
-  }
-
-  void _syncMarketKeys() {
-    _marketKeys
-      ..clear()
-      ..addAll([for (var i = 0; i < game.market.length; i++) GlobalKey()]);
   }
 
   // ---- 진행 ----------------------------------------------------------------
@@ -129,7 +124,6 @@ class _TriBattleScreenState extends State<TriBattleScreen>
   @visibleForTesting
   void myPlaceForTest(int i, int col) {
     game.pickAndPlace(i, col);
-    _syncMarketKeys();
     setState(() {});
     _afterMove();
   }
@@ -138,11 +132,10 @@ class _TriBattleScreenState extends State<TriBattleScreen>
     final seq = _seq;
     final from = _rectOf(_marketKeys[i]);
     final to = _rectOf(_cellKeysA[col]);
-    final card = game.market[i];
+    final card = game.market[i]!;
     final merging = game.rowA[col] != null;
     selectedMarket = null;
     game.pickAndPlace(i, col);
-    _syncMarketKeys();
     _haptic(Haptic.place);
     setState(() {});
     if (from != null && to != null) {
@@ -181,11 +174,10 @@ class _TriBattleScreenState extends State<TriBattleScreen>
       if (!mounted || seq != _seq) return;
       final from = _rectOf(_marketKeys[i]);
       final to = _rectOf(_cellKeysB[col]);
-      final card = game.market[i];
+      final card = game.market[i]!;
       final merging = game.rowB[col] != null;
       selectedMarket = null;
       game.pickAndPlace(i, col);
-      _syncMarketKeys();
       setState(() {});
       if (from != null && to != null) {
         await _flyCard(from, to, card);
@@ -263,7 +255,6 @@ class _TriBattleScreenState extends State<TriBattleScreen>
       setState(() => gameOver = true);
       return;
     }
-    _syncMarketKeys();
     _playSfx(Sfx.shuffle);
     setState(() {});
     _maybeBotTurn();
@@ -417,9 +408,8 @@ class _TriBattleScreenState extends State<TriBattleScreen>
 
   @override
   Widget build(BuildContext context) {
-    final preview = _myTurn && selectedMarket != null
-        ? game.market[selectedMarket!]
-        : null;
+    final preview =
+        _myTurn && selectedMarket != null ? game.market[selectedMarket!] : null;
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(gradient: AppColors.bgGradient),
@@ -432,15 +422,21 @@ class _TriBattleScreenState extends State<TriBattleScreen>
               _comboLabel(game.rowB, mine: false),
               const SizedBox(height: 6),
               _row(game.rowB, _cellKeysB, mine: false, preview: null),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               _duelHints(),
-              const SizedBox(height: 12),
+              // 가운데 마켓 판 — 정산 중엔 **샥 접혀서** 두 줄이 맞붙는다.
+              AnimatedSize(
+                duration: const Duration(milliseconds: 380),
+                curve: Curves.easeInOutCubic,
+                child: ceremony || gameOver
+                    ? const SizedBox(width: double.infinity, height: 8)
+                    : _marketBoard(),
+              ),
+              const SizedBox(height: 8),
               _row(game.rowA, _cellKeysA, mine: true, preview: preview),
               const SizedBox(height: 6),
               _comboLabel(game.rowA, mine: true),
               const Spacer(),
-              _marketStrip(),
-              const SizedBox(height: 6),
               _hpBar(isMe: true),
               const SizedBox(height: 8),
             ]),
@@ -610,48 +606,63 @@ class _TriBattleScreenState extends State<TriBattleScreen>
     );
   }
 
-  Widget _marketStrip() {
+  /// 가운데 마켓 판 — 5×2 고정 슬롯. 픽된 자리는 홈만 남아 "소진"이 보인다.
+  Widget _marketBoard() {
     final myTurn = _myTurn;
+    Widget slot(int i) {
+      final card = game.market[i];
+      final selected = selectedMarket == i;
+      if (card == null) {
+        return Container(
+          width: 50,
+          height: 62,
+          margin: const EdgeInsets.all(3),
+          decoration: BoxDecoration(
+            color: AppColors.slotRecess,
+            borderRadius: BorderRadius.circular(9),
+            border: Border.all(color: AppColors.stroke),
+          ),
+        );
+      }
+      return GestureDetector(
+        onTap: myTurn
+            ? () {
+                _haptic(Haptic.select);
+                setState(() => selectedMarket = selected ? null : i);
+              }
+            : null,
+        child: Padding(
+          padding: const EdgeInsets.all(3),
+          child: KeyedSubtree(
+            key: _marketKeys[i],
+            child: _CardFace(
+              card: card,
+              size: 50,
+              highlight: selected
+                  ? (botPicking ? AppColors.oppPrimary : AppColors.gold)
+                  : null,
+            ),
+          ),
+        ),
+      );
+    }
+
     return Container(
-      height: 76,
-      margin: const EdgeInsets.symmetric(horizontal: 8),
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       decoration: BoxDecoration(
         color: AppColors.panel,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: AppColors.stroke),
       ),
-      child: game.market.isEmpty
-          ? const Center(
-              child:
-                  Text('정산 중…', style: TextStyle(color: AppColors.textMuted)))
-          : ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              itemCount: game.market.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 6),
-              itemBuilder: (_, i) {
-                final selected = selectedMarket == i;
-                return GestureDetector(
-                  onTap: myTurn
-                      ? () {
-                          _haptic(Haptic.select);
-                          setState(() => selectedMarket = selected ? null : i);
-                        }
-                      : null,
-                  child: KeyedSubtree(
-                    key: _marketKeys[i],
-                    child: _CardFace(
-                      card: game.market[i],
-                      size: 50,
-                      highlight: selected
-                          ? (botPicking ? AppColors.oppPrimary : AppColors.gold)
-                          : null,
-                    ),
-                  ),
-                );
-              },
-            ),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          for (var i = 0; i < 5; i++) slot(i),
+        ]),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          for (var i = 5; i < 10; i++) slot(i),
+        ]),
+      ]),
     );
   }
 

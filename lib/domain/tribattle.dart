@@ -50,8 +50,8 @@ abstract final class TriRules {
   static const cols = 5;
   static const ranks = 9; // 덱 랭크 1~9
   static const copies = 3; // 원소당 3벌 = 81장
-  static const marketSize = 11; // 10픽 + 1소각
-  static const maxRounds = 7; // 81 ÷ 11
+  static const marketSize = 10; // 가운데 5×2로 깔리고 전부 소진된다(소각 없음)
+  static const maxRounds = 8; // 81 ÷ 10
   static const hp = 250.0;
   static const duelMult = 1.5; // 열 대결 상성 배율
 
@@ -203,7 +203,10 @@ class TriGame {
   late List<TriCard> _deck;
   final rowA = List<TriCard?>.filled(TriRules.cols, null);
   final rowB = List<TriCard?>.filled(TriRules.cols, null);
-  final market = <TriCard>[];
+
+  /// 마켓 — **고정 슬롯 10칸** (5×2 판). 픽하면 그 칸이 null(빈 자리)이 된다.
+  /// 리스트를 줄이지 않는 이유: 칸이 밀리면 화면에서 카드들이 재배열돼 혼란스럽다.
+  final market = List<TriCard?>.filled(TriRules.marketSize, null);
 
   double hpA = TriRules.hp;
   double hpB = TriRules.hp;
@@ -240,12 +243,9 @@ class TriGame {
   Set<int> openOf(bool isA) => isA ? openA : openB;
 
   void _openMarket() {
-    market
-      ..clear()
-      ..addAll([
-        for (var i = 0; i < TriRules.marketSize && _deck.isNotEmpty; i++)
-          _deck.removeLast(),
-      ]);
+    for (var i = 0; i < TriRules.marketSize; i++) {
+      market[i] = _deck.isNotEmpty ? _deck.removeLast() : null;
+    }
   }
 
   /// 마켓 [marketIndex] 카드를 [col] 열에 얹는다(있으면 합체).
@@ -255,7 +255,8 @@ class TriGame {
     final row = rowOf(owner);
     final open = openOf(owner);
     assert(open.contains(col), '이번 라운드에 이미 채운 열');
-    final card = market.removeAt(marketIndex);
+    final card = market[marketIndex]!;
+    market[marketIndex] = null;
     final merging = row[col] != null;
     row[col] = merging ? row[col]!.mergeWith(card) : card;
     open.remove(col);
@@ -271,7 +272,7 @@ class TriGame {
       _step++;
     }
     if (_step >= TriRules.pickOrder.length) {
-      market.clear();
+      market.fillRange(0, market.length, null); // 전부 소진 — 판이 접힌다
       _step = 0;
       _resolveRound();
     }
@@ -321,6 +322,7 @@ class TriGreedyBot {
     (int, int)? pick;
     for (var i = 0; i < g.market.length; i++) {
       final card = g.market[i];
+      if (card == null) continue; // 이미 픽된 빈 슬롯
       for (final c in open) {
         final prev = row[c];
         row[c] = prev == null ? card : prev.mergeWith(card);
