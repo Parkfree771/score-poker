@@ -35,6 +35,7 @@ flutter:
   assets:
     - assets/lottie/
     - assets/sfx/
+    - shorebird.yaml
   fonts:
     - family: AlfaSlabOne
       fonts:
