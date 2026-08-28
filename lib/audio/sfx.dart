@@ -31,9 +31,10 @@ enum Sfx {
   /// "착" — 날아간 칩이 뒷면을 쳐내는 순간.
   chipFlick('chip_flick', variants: 2, jitter: true),
 
-  /// "탁-슈욱" — 칩을 쏘는 순간. Sonniss GDC 발췌 리믹스(휘익 저역 밴드 + 출발 클릭),
-  /// 충돌(chipTing)보다 작게 들리도록 피크 -11dB로 구워 뒀다.
-  chipShot('chip_shot', variants: 2, jitter: true),
+  /// "탁-슈욱" — 칩을 쏘는 순간. Sonniss GDC 발췌 리믹스(휘익 저역 밴드 + 출발 클릭).
+  /// 파일이 이미 피크 -11dB인데 실기기에서 여전히 충돌을 눌러서 gain으로 -7dB 더 —
+  /// 밸런스를 파일에 다시 굽지 않고 여기 숫자로 조절한다(OTA 패치로 튜닝 가능).
+  chipShot('chip_shot', variants: 2, gain: 0.45),
 
   /// "탁!" — 칩이 카드에 맞는 순간. Sonniss GDC 발췌 리믹스(기어 클릭 + 저역 썸프,
   /// 새추레이션으로 RMS를 올려 시퀀스에서 가장 크게 들린다).
@@ -46,10 +47,14 @@ enum Sfx {
   win('win'),
   lose('lose');
 
-  const Sfx(this.baseName, {this.variants = 1, this.jitter = false});
+  const Sfx(this.baseName, {this.variants = 1, this.jitter = false, this.gain = 1});
   final String baseName;
   final int variants;
   final bool jitter;
+
+  /// 재생 음량(0~1). 소리 간 상대 밸런스는 파일에 굽는 대신 여기서 조절한다 —
+  /// wav 재생성 없이 코드(OTA 패치)만으로 튜닝하기 위해서다.
+  final double gain;
 
   /// AssetSource 기준(assets/ 접두 자동).
   String assetPath(int variant) =>
@@ -106,6 +111,7 @@ class SfxService extends ChangeNotifier {
       p.setPlayerMode(PlayerMode.lowLatency).catchError((Object _) {});
       // stop() 후에도 소스를 놓지 않는다(기본 release는 다음 재생 때 다시 로드한다).
       p.setReleaseMode(ReleaseMode.stop).catchError((Object _) {});
+      p.setVolume(sfx.gain).catchError((Object _) {});
       p.setSource(AssetSource(sfx.assetPath(variant))).catchError((Object _) {});
       return p;
     });

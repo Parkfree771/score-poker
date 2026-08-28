@@ -374,11 +374,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             _fly(_deckKey, _oppHandKey, g.hands[ai]![i], faceDown: true, ms: 240)
                 .then((_) {
           if (!mounted || seq != _seq) return;
-          // 상대에게 가는 카드는 **무음**. 내 카드와 100ms 차로 붙어 있어서
+          // 상대에게 가는 카드는 **무음**. 내 카드와 반 박자 차로 붙어 있어서
           // 소리를 같이 내면 두 발이 겹쳐 뭉개진다 — 딜링의 박자는 내 손이 잡는다.
           setState(() => _dealtOpp = i + 1);
         }));
-        await Future<void>.delayed(const Duration(milliseconds: 100));
+        await Future<void>.delayed(const Duration(milliseconds: 160));
         if (!mounted || seq != _seq) return;
       }
       // 내 카드만 운다 — 소리는 안착(240ms)보다 sfxLeadMs 먼저 쏴서 출력
@@ -393,7 +393,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         setState(() => _dealtMine = i + 1);
         _haptic(Haptic.select);
       }));
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      // 내 카드 간격 = 320ms(상대 160 + 나 160). 200ms는 "착"이 서로 뭉개져
+      // 리듬으로 안 들린다는 실기기 피드백 — 한 장 한 장이 또렷해야 한다.
+      await Future<void>.delayed(const Duration(milliseconds: 160));
       if (!mounted || seq != _seq) return;
     }
     await Future<void>.delayed(const Duration(milliseconds: 300));
