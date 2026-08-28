@@ -14,7 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// 무작위로 하나를 고른다. [jitter]는 재생 속도를 ±6% 흔든다 — 같은 소리의 반복은
 /// 몇 번만 들어도 "게임 소리"처럼 들리는데, 샘플·피치 변형 두 가지가 그걸 없앤다.
 enum Sfx {
-  cardPlace('card_place', variants: 4, jitter: true),
+  cardPlace('card_place', variants: 4, jitter: true, gain: 0.65),
   cardSlide('card_slide', variants: 4, jitter: true),
   deal('deal'),
   shuffle('shuffle'),
@@ -73,8 +73,9 @@ class SfxService extends ChangeNotifier {
 
   static const _kEnabled = 'settings.sfx.v1';
 
-  /// (소리, 변형) → 미리 로드된 플레이어. **재생 시점 로드는 소리가 늦게 난다** —
-  /// 특히 웹은 매번 네트워크 fetch가 끼어 카드 안착보다 "탁"이 늦었다.
+  /// (소리, 변형) → **캐시 앵커** 플레이어. 직접 재생하지 않고 소스만 물려 둔다 —
+  /// 네이티브 SoundPool 캐시를 붙잡아, 재생마다 새로 만드는 플레이어([_play])의
+  /// 로드가 항상 캐시 히트가 되게 한다(재생 시점 로드는 소리가 늦게 난다).
   final Map<(Sfx, int), AudioPlayer> _players = {};
   final Random _rng = Random();
   bool _enabled = true;
@@ -130,28 +131,41 @@ class SfxService extends ChangeNotifier {
   }
 
   /// 효과음 재생. 끈 상태거나 재생이 불가능한 환경이면 아무 일도 하지 않는다.
-  void play(Sfx sfx) {
+  ///
+  /// [variant]를 지정하면 그 변형을 지터 없이 재생한다 — 딜링처럼 같은 소리가
+  /// 같은 리듬으로 "착착착" 반복돼야 하는 자리용(무작위 변형은 리듬을 부순다).
+  void play(Sfx sfx, {int? variant}) {
     if (!_enabled) return;
     // fire-and-forget: 게임 루프를 오디오에 붙들지 않는다.
-    _play(sfx).catchError((Object _) {});
+    _play(sfx, variant: variant).catchError((Object _) {});
   }
 
-  /// **매번 `play()`로 소스부터 다시 문다.** 안드로이드에서 lowLatency +
-  /// ReleaseMode.stop 조합은 재생 완료 신호가 오지 않아 `resume()` 재생이
-  /// **첫 한 번만 되는** 버그가 있다(bluefireteam/audioplayers#1489 — 실기기에서
-  /// "칩 소리가 한 번 나오고 다시는 안 난다"로 재현됐다). `play()`는 같은
-  /// 소스여도 건너뛰지 않고 새 스트림을 시작하고, SoundPool의 URL 캐시 덕에
-  /// 재로드 비용은 없다 — resume보다 채널 왕복이 하나 늘 뿐이다.
-  Future<void> _play(Sfx sfx) async {
-    final v = _rng.nextInt(sfx.variants);
-    final p = _player(sfx, v);
-    if (sfx.jitter) {
+  /// **재생마다 새 플레이어를 만들어 쏘고 버린다.** 안드로이드 lowLatency 모드는
+  /// 재생 완료 신호가 오지 않아 같은 플레이어의 두 번째 재생부터 조용히 무시되는
+  /// 버그가 있다(bluefireteam/audioplayers#1489). stop→resume도, play() 재호출도
+  /// 실기기에서 2~3번째부터 죽는 것이 확인됐다 — 플레이어를 재사용하는 한 못
+  /// 피한다. 대신 [_players]의 앵커들이 소스를 물고 있어 네이티브 SoundPool
+  /// 캐시가 유지되므로, 새 플레이어의 로드는 캐시 히트라 지연이 없다.
+  /// 다 쓴 플레이어는 완료 이벤트가 안 오므로 타이머로 정리한다.
+  Future<void> _play(Sfx sfx, {int? variant}) async {
+    final v = variant ?? _rng.nextInt(sfx.variants);
+    _player(sfx, v); // 앵커 보장 — 최초 재생 전에 캐시를 채운다.
+    final p = AudioPlayer();
+    unawaited(p.setPlayerMode(PlayerMode.lowLatency).catchError((Object _) {}));
+    unawaited(p.setVolume(sfx.gain).catchError((Object _) {}));
+    if (sfx.jitter && variant == null) {
       // 미지원 플랫폼에서 실패해도 원속으로 재생되면 그만이다.
       unawaited(p
           .setPlaybackRate(0.94 + _rng.nextDouble() * 0.12)
           .catchError((Object _) {}));
     }
-    await p.play(AssetSource(sfx.assetPath(v)));
+    try {
+      await p.play(AssetSource(sfx.assetPath(v)));
+    } finally {
+      unawaited(Future<void>.delayed(const Duration(seconds: 4))
+          .then((_) => p.dispose())
+          .catchError((Object _) {}));
+    }
   }
 
   @override

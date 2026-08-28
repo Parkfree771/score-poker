@@ -16,7 +16,7 @@ class _RecordingSfx extends SfxService {
   final List<Sfx> played = [];
 
   @override
-  void play(Sfx sfx) => played.add(sfx);
+  void play(Sfx sfx, {int? variant}) => played.add(sfx);
 }
 
 class _RecordingHaptics extends HapticService {

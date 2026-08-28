@@ -284,9 +284,12 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     }
   }
 
-  void _playSfx(Sfx sfx) {
+  void _playSfx(Sfx sfx, {int? variant}) {
     if (!mounted) return;
-    context.getInheritedWidgetOfExactType<SfxScope>()?.notifier?.play(sfx);
+    context
+        .getInheritedWidgetOfExactType<SfxScope>()
+        ?.notifier
+        ?.play(sfx, variant: variant);
   }
 
   void _haptic(Haptic h) {
@@ -386,7 +389,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       unawaited(Future<void>.delayed(const Duration(milliseconds: 240 - sfxLeadMs))
           .then((_) {
         if (!mounted || seq != _seq) return;
-        _playSfx(Sfx.cardPlace);
+        // 고정 변형·지터 없음 — 딜링의 "착착착"은 같은 소리가 같은 리듬으로.
+        _playSfx(Sfx.cardPlace, variant: 0);
       }));
       unawaited(_fly(_deckKey, _handKey(i), g.hands[me]![i], ms: 240).then((_) {
         if (!mounted || seq != _seq) return;
