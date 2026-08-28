@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
 
@@ -64,10 +63,11 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         // 디버그 빌드: 제목을 길게 누르면 연출 실험실(강타·칩 튕김을 버튼으로).
         title: GestureDetector(
-          onLongPress: kDebugMode
-              ? () => Navigator.of(context).push(MaterialPageRoute<void>(
-                  builder: (_) => GameScreen(initialGame: fxLabState(), fxLab: true)))
-              : null,
+          // 연출 실험실 — 릴리스에서도 연다(비공개 테스트 중 실기기로 소리·타이밍을
+          // 잡아야 한다). 제목 길게 누르기라 일반 유저가 우연히 열 일은 거의 없고,
+          // 열려도 고정 판 데모일 뿐이다. 프로덕션 승급 전에 유지 여부 재검토.
+          onLongPress: () => Navigator.of(context).push(MaterialPageRoute<void>(
+              builder: (_) => GameScreen(initialGame: fxLabState(), fxLab: true))),
           child: Text(l10n.appTitle),
         ),
         actions: [

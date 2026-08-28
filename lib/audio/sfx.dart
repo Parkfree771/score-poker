@@ -37,7 +37,9 @@ enum Sfx {
 
   /// "탁!" — 칩이 카드에 맞는 순간. Sonniss GDC 발췌 리믹스(기어 클릭 + 저역 썸프,
   /// 새추레이션으로 RMS를 올려 시퀀스에서 가장 크게 들린다).
-  chipTing('chip_ting', variants: 2, jitter: true),
+  /// jitter 없음: 변형 2종의 피치가 이미 달라서(썸프 105/118Hz) 지터까지 얹으면
+  /// "내가 칠 때와 상대가 칠 때 소리가 다르다"고 들린다 — 실기기 청취 피드백.
+  chipTing('chip_ting', variants: 2),
 
   /// "틱" — 되튄 칩이 테이블에 다시 닿는 작은 소리(`tool/gen_chip_sfx.py`).
   chipTick('chip_tick', variants: 2, jitter: true),

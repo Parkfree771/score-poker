@@ -78,6 +78,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   static const ai = PlayerId.p1;
   static const roundSeconds = 60.0;
 
+  /// 오디오 출력 지연 상쇄분 — 안착·충돌 소리는 시각 이벤트보다 이만큼 **미리**
+  /// 쏴야 귀에는 제때 들린다(안드로이드 저지연 모드도 30~60ms 지연). 실기기
+  /// 청취로 튜닝하는 값이라 한 곳에 모아 둔다(딜링 "착"·칩 "팅"이 같이 쓴다).
+  static const sfxLeadMs = 45;
+
   /// 둘 다 배치를 끝냈을 때 남겨줄 최종 수정 시간.
   static const lastCallSeconds = 5.0;
 
@@ -376,11 +381,16 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         await Future<void>.delayed(const Duration(milliseconds: 100));
         if (!mounted || seq != _seq) return;
       }
+      // 내 카드만 운다 — 소리는 안착(240ms)보다 sfxLeadMs 먼저 쏴서 출력
+      // 지연을 상쇄한다(안착 콜백에서 내면 매번 늦게 들려 리듬이 무너진다).
+      unawaited(Future<void>.delayed(const Duration(milliseconds: 240 - sfxLeadMs))
+          .then((_) {
+        if (!mounted || seq != _seq) return;
+        _playSfx(Sfx.cardPlace);
+      }));
       unawaited(_fly(_deckKey, _handKey(i), g.hands[me]![i], ms: 240).then((_) {
         if (!mounted || seq != _seq) return;
         setState(() => _dealtMine = i + 1);
-        // 내 카드만 운다. 손끝의 톡까지 같이, 안착 프레임에 정확히.
-        _playSfx(Sfx.cardPlace);
         _haptic(Haptic.select);
       }));
       await Future<void>.delayed(const Duration(milliseconds: 100));
@@ -669,6 +679,20 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           btn('강타 둘 다', () => _strikeCeremony(_seq)),
           btn('칩 나→상대', () => _peekWithChip(by: me, row: 1, col: 1)),
           btn('칩 상대→나', () => _peekWithChip(by: ai, row: 1, col: 1)),
+          btn('딜링 5장', () async {
+            // 판 시작 연출 그대로 — 새 판을 깔고 패를 한 장씩 받는다.
+            // 소리 리듬(200ms 간격 "착")과 안착 타이밍을 귀로 맞추는 용도.
+            setState(() {
+              g = ScoreGame.deal(seed: 7);
+              _dealtMine = 0;
+              _dealtOpp = 0;
+            });
+            await _dealAnimation(_seq);
+          }),
+          // 소리 단독 — 연출 없이 파일만. 변형·음량 비교용.
+          btn('소리: 슛', () async => _playSfx(Sfx.chipShot)),
+          btn('소리: 팅', () async => _playSfx(Sfx.chipTing)),
+          btn('소리: 착', () async => _playSfx(Sfx.cardPlace)),
           btn('리셋', () async {}),
         ],
       ),
@@ -1143,7 +1167,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     // 비행음(chipShot)도 여기에 맞춰 에너지 정점이 235ms — 팅 어택(255ms) 직전 —
     // 에 오도록 구워 뒀다(`tool/mix_chip_sfx.py` 참고).
     const flight = Duration(milliseconds: 300);
-    const contactLead = Duration(milliseconds: 45); // ≈ 오디오 출력 지연
+    const contactLead = Duration(milliseconds: sfxLeadMs);
     final from = _rectFor(chipKey), to = _rectFor(cellKey);
     if (from != null && to != null) {
       _playSfx(Sfx.chipShot);
