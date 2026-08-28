@@ -128,25 +128,22 @@ class SfxService extends ChangeNotifier {
     _play(sfx).catchError((Object _) {});
   }
 
-  /// **재생 호출을 await로 줄줄이 엮지 않는다.** stop → setRate → resume을 차례로
-  /// 기다리면 플랫폼 채널을 세 번 왕복하는 동안 소리가 밀린다(카드가 손에 닿고 나서
-  /// "착"이 난다). 같은 플레이어에 건 호출은 순서가 유지되므로 걸어만 두고 넘어간다.
+  /// **매번 `play()`로 소스부터 다시 문다.** 안드로이드에서 lowLatency +
+  /// ReleaseMode.stop 조합은 재생 완료 신호가 오지 않아 `resume()` 재생이
+  /// **첫 한 번만 되는** 버그가 있다(bluefireteam/audioplayers#1489 — 실기기에서
+  /// "칩 소리가 한 번 나오고 다시는 안 난다"로 재현됐다). `play()`는 같은
+  /// 소스여도 건너뛰지 않고 새 스트림을 시작하고, SoundPool의 URL 캐시 덕에
+  /// 재로드 비용은 없다 — resume보다 채널 왕복이 하나 늘 뿐이다.
   Future<void> _play(Sfx sfx) async {
-    final p = _player(sfx, _rng.nextInt(sfx.variants));
-    unawaited(p.stop().catchError((Object _) {})); // 겹치면 재시작
+    final v = _rng.nextInt(sfx.variants);
+    final p = _player(sfx, v);
     if (sfx.jitter) {
       // 미지원 플랫폼에서 실패해도 원속으로 재생되면 그만이다.
       unawaited(p
           .setPlaybackRate(0.94 + _rng.nextDouble() * 0.12)
           .catchError((Object _) {}));
     }
-    // 소스가 이미 물려 있으므로 resume이 즉시 난다. 프리로드가 실패했던
-    // 파일이면 여기서 다시 세팅된다.
-    try {
-      await p.resume();
-    } on Object {
-      await p.play(AssetSource(sfx.assetPath(_rng.nextInt(sfx.variants))));
-    }
+    await p.play(AssetSource(sfx.assetPath(v)));
   }
 
   @override
