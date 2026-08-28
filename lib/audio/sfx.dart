@@ -31,10 +31,12 @@ enum Sfx {
   /// "착" — 날아간 칩이 뒷면을 쳐내는 순간.
   chipFlick('chip_flick', variants: 2, jitter: true),
 
-  /// "탁-슛" — 칩을 쏘는 순간(`tool/gen_chip_sfx.py`: Kenney 칩 충돌 클릭 + 짧은 스윕).
+  /// "탁-슈욱" — 칩을 쏘는 순간. Sonniss GDC 발췌 리믹스(휘익 저역 밴드 + 출발 클릭),
+  /// 충돌(chipTing)보다 작게 들리도록 피크 -11dB로 구워 뒀다.
   chipShot('chip_shot', variants: 2, jitter: true),
 
-  /// "팅!" — 칩이 카드에 맞는 순간(`tool/gen_chip_sfx.py`: Kenney 금속판 링 + 클릭 + 저역 몸통).
+  /// "탁!" — 칩이 카드에 맞는 순간. Sonniss GDC 발췌 리믹스(기어 클릭 + 저역 썸프,
+  /// 새추레이션으로 RMS를 올려 시퀀스에서 가장 크게 들린다).
   chipTing('chip_ting', variants: 2, jitter: true),
 
   /// "틱" — 되튄 칩이 테이블에 다시 닿는 작은 소리(`tool/gen_chip_sfx.py`).
