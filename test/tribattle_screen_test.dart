@@ -18,31 +18,28 @@ void main() {
     ));
     await tester.pump();
 
-    final state =
-        tester.state(find.byType(TriBattleScreen)) as dynamic; // ignore: avoid_dynamic_calls
+    final state = tester.state(find.byType(TriBattleScreen))
+        as dynamic; // ignore: avoid_dynamic_calls
     final TriGame g = state.game as TriGame;
     expect(g.market.length, TriRules.marketSize);
-    expect(g.turnOwner, isTrue, reason: '첫 판은 내가 선픽');
+    expect(g.turnOwner, isTrue, reason: '첫 라운드는 내가 선픽');
 
-    // 내 픽: 마켓 첫 카드 선택 → 빈 칸 (0,0)에 배치.
+    // 내 픽: 마켓 첫 카드를 0번 열에 배치.
     final card0 = g.market[0];
-    state.selectedMarket = 0; // 탭 좌표 대신 상태로 직접(스크롤 위치 무관하게)
-    // ignore: invalid_use_of_protected_member
-    state.setState(() {});
+    state.myPlaceForTest(0, 0);
     await tester.pump();
-    state.myPlaceForTest(0, 0, 0);
-    await tester.pump();
-    expect(g.boardA.g[0][0]?.value, card0.value, reason: '내 배치가 보드에 반영');
+    expect(g.rowA[0]?.value, card0.value, reason: '내 배치가 열에 반영');
+    expect(g.openA.contains(0), isFalse, reason: '이번 라운드에 채운 열');
 
-    // 봇 턴이 돌아 다음 내 차례(또는 판 종료)까지 진행된다.
+    // 봇 턴(다음 2픽)이 돌아 내 차례로 돌아온다.
     for (var i = 0; i < 40 && g.turnOwner == false; i++) {
       await tester.pump(const Duration(milliseconds: 300));
     }
-    expect(g.boardB.g.expand((r) => r).whereType<TriCard>().length,
-        greaterThanOrEqualTo(1), reason: '봇이 실제로 배치했다');
+    expect(g.rowB.whereType<TriCard>().length, greaterThanOrEqualTo(1),
+        reason: '봇이 실제로 배치했다');
 
-    // 남은 비동기 타이머 정리.
+    // 남은 비동기 타이머·오버레이 정리.
     await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 2));
   });
 }

@@ -396,16 +396,16 @@ void main() {
     // Image.memory(원소 PNG)는 비동기 디코드 — runAsync로 실제 완료시켜 골든에 찍는다.
     await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 150)));
     await tester.pump();
-    // 내 첫 픽 몇 수를 상태로 직접 진행해 보드가 찬 장면을 만든다.
+    // 내 첫 픽을 상태로 직접 진행하고, 봇 픽이 돌아올 때까지 펌프.
     final st = tester.state(find.byType(TriBattleScreen)) as dynamic;
-    st.myPlaceForTest(0, 0, 0);
+    st.myPlaceForTest(0, 0);
     await tester.pump();
-    // 봇 픽이 몇 장 진행될 때까지 돌린다.
     for (var i = 0; i < 20; i++) {
       await tester.pump(const Duration(milliseconds: 300));
       if ((st.game as TriGame).turnOwner == true) break;
     }
-    // 마켓 카드 하나 선택 — 배치 미리보기(+점수)가 보이는 장면.
+    await tester.pump(const Duration(milliseconds: 400)); // 비행 오버레이 정리
+    // 마켓 카드 하나 선택 — 열 합체 미리보기가 보이는 장면.
     st.selectedMarket = 0;
     // ignore: invalid_use_of_protected_member
     st.setState(() {});
@@ -413,7 +413,7 @@ void main() {
     await expectLater(
         find.byType(TriBattleScreen), matchesGoldenFile('goldens/shot_46_tribattle.png'));
     await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 2));
   });
 
   testWidgets('match screen portrait', (tester) async {
