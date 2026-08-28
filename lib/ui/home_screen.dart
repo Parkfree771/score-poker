@@ -12,6 +12,7 @@ import 'match_screen.dart';
 import 'ranking_screen.dart';
 import 'settings_screen.dart';
 import 'shop_screen.dart';
+import 'tribattle_screen.dart';
 import 'theme.dart';
 
 /// 메인 메뉴: 모드 선택(사람 vs AI / 사람 vs 사람).
@@ -116,6 +117,19 @@ class _HomeScreenState extends State<HomeScreen> {
                     description: l10n.modeSingleDesc,
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(builder: (_) => const MatchScreen()),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  // 트라이 배틀 프로토타입 — 실험 라벨. 정식 승격 시 ARB로 옮긴다.
+                  _ModeCard(
+                    asset: 'assets/lottie/flame.json',
+                    glow: AppColors.oppPrimary,
+                    title: '트라이 배틀',
+                    description: '물·불·숲 드래프트 전략 배틀 — 새 모드 실험판',
+                    badge: '실험',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                          builder: (_) => const TriBattleScreen()),
                     ),
                   ),
                   const SizedBox(height: 14),
