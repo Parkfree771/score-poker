@@ -396,17 +396,18 @@ void main() {
     // Image.memory(원소 PNG)는 비동기 디코드 — runAsync로 실제 완료시켜 골든에 찍는다.
     await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 150)));
     await tester.pump();
-    // 내 첫 픽 몇 수를 상태로 직접 진행해 보드가 찬 장면을 만든다.
+    // 내 첫 수를 상태로 직접 진행해 보드가 찬 장면을 만든다.
     final st = tester.state(find.byType(TriBattleScreen)) as dynamic;
-    st.myPlaceForTest(0, 0, 0);
+    st.placeForTest(0, 0);
     await tester.pump();
-    // 봇 픽이 몇 장 진행될 때까지 돌린다.
+    // 봇 턴이 몇 수 진행될 때까지 돌린다.
     for (var i = 0; i < 20; i++) {
-      await tester.pump(const Duration(milliseconds: 300));
-      if ((st.game as TriGame).turnOwner == true) break;
+      await tester.pump(const Duration(milliseconds: 350));
+      final g = st.game as TriGame;
+      if (!g.finished && g.current == 0 && g.phase == TriPhase.action) break;
     }
-    // 마켓 카드 하나 선택 — 배치 미리보기(+점수)가 보이는 장면.
-    st.selectedMarket = 0;
+    // 손패 하나 선택 — 배치 미리보기(+점수)가 보이는 장면.
+    st.selectedHand = 0;
     // ignore: invalid_use_of_protected_member
     st.setState(() {});
     await tester.pump();
