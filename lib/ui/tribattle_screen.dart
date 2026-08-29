@@ -9,12 +9,11 @@ import '../feedback/haptics.dart';
 import 'theme.dart';
 import 'tribattle_icons.dart';
 
-/// 트라이 배틀 v3 화면 (실험 모드) — 룰 정본은 `docs/TRIBATTLE.md`.
+/// 트라이 배틀 화면 (실험 모드) — 룰 정본은 `docs/TRIBATTLE.md`.
 ///
 /// 원칙 "계산은 게임이 하고 플레이어는 비교만 한다":
-///  - 손패를 고르면 놓을 수 있는 열마다 **얻는 점수(+N)**, 때릴 수 있는
-///    상대 카드는 **빨간 테두리**로 미리 보여준다.
-///  - 열 배지는 점수 + 현재 조합 라벨, 색은 상대 같은 열과의 우세/열세.
+///  - 마켓 카드를 고르면 놓을 수 있는 칸마다 **얻는 점수(+N)** 를 미리 띄운다.
+///  - 내 격자의 행/열 배지는 상대 같은 줄과의 **우세/열세를 색**으로 보여준다.
 /// 문자열은 한국어 하드코딩 — 실험 모드가 정식 승격되면 ARB로 옮긴다.
 class TriBattleScreen extends StatefulWidget {
   const TriBattleScreen({super.key, this.seed});
@@ -26,25 +25,23 @@ class TriBattleScreen extends StatefulWidget {
   State<TriBattleScreen> createState() => _TriBattleScreenState();
 }
 
-enum _Phase { playing, resolving, matchOver }
+enum _Phase { picking, resolving, matchOver }
 
 class _TriBattleScreenState extends State<TriBattleScreen> {
   final _rng = Random();
-  final _bot = const TriBot();
+  final _bot = const TriGreedyBot();
   final match = TriMatch();
 
   late TriGame game;
-  _Phase phase = _Phase.playing;
+  _Phase phase = _Phase.picking;
   int gameNo = 1;
 
-  /// 내가 고른 손패 인덱스(배치·공격 미리보기 중).
-  int? selectedHand;
+  /// 내가 고른 마켓 카드(배치 후보 미리보기 중). 봇 연출용으로도 쓴다.
+  int? selectedMarket;
+  bool botPicking = false;
 
-  /// 뒷면 배치 모드(코인 1) — 다음 배치에 적용.
-  bool faceDownMode = false;
-
-  /// 판 정산 결과: (승자, 데미지).
-  (int, double)? lastRes;
+  /// 판 정산 결과(정산 오버레이 표시용).
+  TriResolution? lastRes;
   int _seq = 0; // 화면 이탈/재시작 시 비동기 루프 중단용
 
   @override
@@ -61,92 +58,32 @@ class _TriBattleScreenState extends State<TriBattleScreen> {
 
   void _newGame({required bool meFirst}) {
     game = TriGame(
-        seed: widget.seed ?? _rng.nextInt(1 << 30), current: meFirst ? 0 : 1);
-    selectedHand = null;
-    faceDownMode = false;
-    phase = _Phase.playing;
+        seed: widget.seed ?? _rng.nextInt(1 << 30), leaderIsA: meFirst);
+    selectedMarket = null;
+    phase = _Phase.picking;
     lastRes = null;
     _playSfx(Sfx.shuffle);
-    if (game.current == 1) _botLoop();
+    _afterMove();
   }
 
-  bool get myTurn =>
-      phase == _Phase.playing && !game.finished && game.current == 0;
+  // ---- 진행 ----
 
-  // ---- 내 행동 ----
-
-  void _tapHand(int i) {
-    if (!myTurn || game.phase != TriPhase.action) return;
-    _haptic(Haptic.select);
-    setState(() => selectedHand = selectedHand == i ? null : i);
-  }
-
-  /// 테스트 전용 — 손패 [i]를 [col]에 배치.
+  /// 테스트 전용 — 탭 좌표 없이 픽·배치를 실행한다.
   @visibleForTesting
-  void placeForTest(int i, int col) {
-    selectedHand = i;
-    _placeAt(col);
-  }
+  void myPlaceForTest(int i, int r, int c) => _myPlace(i, r, c);
 
-  void _placeAt(int col) {
-    if (selectedHand == null || !game.boards[0].canPlace(col)) return;
-    final fd = faceDownMode && game.coins[0] >= TriRules.costFaceDown;
-    game.place(selectedHand!, col, faceDown: fd);
-    selectedHand = null;
-    faceDownMode = false;
-    _playSfx(fd ? Sfx.chipTick : Sfx.cardPlace);
-    _haptic(Haptic.place);
-    setState(() {});
-    _afterMove();
-  }
-
-  void _tapOppCard(int col, int row) {
-    if (!myTurn || game.phase != TriPhase.action) return;
-    final card = game.boards[1].cols[col][row];
-    // 공격: 손패 선택 중 + 랭크 일치 + 보이는 비-방어막 카드.
-    if (selectedHand != null &&
-        !card.shield &&
-        game.visibleTo(0, card) &&
-        game.hands[0][selectedHand!].rank == card.rank) {
-      game.attack(selectedHand!, col, row);
-      selectedHand = null;
-      _playSfx(Sfx.attackHit);
-      _haptic(Haptic.impact);
-      setState(() {});
-      if (game.phase != TriPhase.shield) _afterMove();
-      return;
-    }
-    // 훔쳐보기: 손패 미선택 + 뒷면 + 코인.
-    if (selectedHand == null &&
-        card.faceDown &&
-        !card.peeked &&
-        !card.shield &&
-        game.coins[0] >= TriRules.costPeek) {
-      game.peek(col, row);
+  /// 내 픽: 마켓 [i]를 (r,c)에 배치.
+  void _myPlace(int i, int r, int c) {
+    final merging = game.boardA.g[r][c] != null;
+    game.pickAndPlace(i, r, c);
+    selectedMarket = null;
+    if (merging) {
       _playSfx(Sfx.chipTing);
-      _haptic(Haptic.select);
-      setState(() {});
+      _haptic(Haptic.shieldLock);
+    } else {
+      _playSfx(Sfx.cardPlace);
+      _haptic(Haptic.place);
     }
-  }
-
-  void _tapShieldSlot(bool own, int col) {
-    if (game.phase != TriPhase.shield || game.current != 0) return;
-    game.placeShield(own, col);
-    _playSfx(Sfx.cardSlide);
-    _haptic(Haptic.place);
-    setState(() {});
-    _afterMove();
-  }
-
-  void _discard() {
-    if (!myTurn ||
-        game.boards[0].openCols.isNotEmpty ||
-        game.hands[0].isEmpty) {
-      return;
-    }
-    game.discard(selectedHand ?? game.hands[0].length - 1);
-    selectedHand = null;
-    _playSfx(Sfx.cardSlide);
     setState(() {});
     _afterMove();
   }
@@ -157,72 +94,68 @@ class _TriBattleScreenState extends State<TriBattleScreen> {
       _resolveGame();
       return;
     }
-    if (game.current == 1) _botLoop();
+    if (game.turnOwner == false) _botLoop();
   }
 
-  /// 봇(상대) 턴 루프 — 행동 사이에 딜레이를 줘 "뭘 하는지"가 보이게 한다.
+  /// 봇(상대) 픽 루프 — 고르는 카드를 잠깐 비춰서 "상대가 뭘 집는지"가 보이게 한다.
   Future<void> _botLoop() async {
     final seq = ++_seq;
-    while (mounted && seq == _seq && !game.finished && game.current == 1) {
-      await Future<void>.delayed(const Duration(milliseconds: 650));
+    botPicking = true;
+    while (mounted && seq == _seq && game.turnOwner == false) {
+      await Future<void>.delayed(const Duration(milliseconds: 550));
       if (!mounted || seq != _seq) return;
-      final move = _bot.choose(game);
-      switch (move) {
-        case BotPeek(:final col, :final row):
-          game.peek(col, row);
-          _playSfx(Sfx.chipTing);
-          setState(() {});
-        // 훔쳐보기는 덤 행동 — 루프 계속.
-        case BotAttack(:final handIdx, :final col, :final row):
-          game.attack(handIdx, col, row);
-          _playSfx(Sfx.attackHit);
-          _haptic(Haptic.impact);
-          setState(() {});
-        case BotShield(:final ownField, :final col):
-          game.placeShield(ownField, col);
-          _playSfx(Sfx.cardSlide);
-          setState(() {});
-        case BotPlace(:final handIdx, :final col, :final faceDown):
-          game.place(handIdx, col, faceDown: faceDown);
-          _playSfx(faceDown ? Sfx.chipTick : Sfx.cardSlide);
-          setState(() {});
-        case BotDiscard(:final handIdx):
-          game.discard(handIdx);
-          _playSfx(Sfx.cardSlide);
-          setState(() {});
+      final pick = _bot.choose(game);
+      if (pick == null) {
+        // 둘 곳이 전혀 없다(이론상 보드 가득) — 첫 장 소각.
+        game.pickAndBurn(0);
+        setState(() {});
+        continue;
       }
+      final (i, r, c) = pick;
+      setState(() => selectedMarket = i); // 상대가 집은 카드 하이라이트
+      await Future<void>.delayed(const Duration(milliseconds: 420));
+      if (!mounted || seq != _seq) return;
+      final merging = game.boardB.g[r][c] != null;
+      game.pickAndPlace(i, r, c);
+      selectedMarket = null;
+      _playSfx(merging ? Sfx.chipTick : Sfx.cardSlide);
+      setState(() {});
     }
+    botPicking = false;
     if (mounted && seq == _seq && game.finished) _resolveGame();
   }
 
   /// 판 정산 — 오버레이를 띄우고 HP를 깎는다.
   void _resolveGame() {
-    final res = match.applyGame(game);
-    lastRes = res;
+    final r = resolve(game.boardA, game.boardB);
+    lastRes = r;
     phase = _Phase.resolving;
-    _playSfx(res.$1 == 0 ? Sfx.sting : Sfx.attackHit);
+    final iWonJackpot = r.winner == 0 && r.jackpotRowsA.isNotEmpty;
+    _playSfx(iWonJackpot ? Sfx.sting : Sfx.attackHit);
     _haptic(Haptic.impact);
+    match.applyGame(r);
     setState(() {});
     if (match.over) {
       Future<void>.delayed(const Duration(milliseconds: 900), () {
         if (!mounted) return;
-        _playSfx(match.matchWinner == 0 ? Sfx.win : Sfx.lose);
+        _playSfx(match.winner == 0 ? Sfx.win : Sfx.lose);
         setState(() => phase = _Phase.matchOver);
       });
     }
   }
 
   void _nextGame() {
-    // 진 쪽이 다음 판 선턴 — 역전 장치. (무승부면 나부터)
+    // 진 쪽이 다음 판 선픽 — 역전 장치.
+    final loserIsMe = lastRes!.winner == 1;
     gameNo++;
-    setState(() => _newGame(meFirst: lastRes!.$1 != 0));
+    setState(() => _newGame(meFirst: loserIsMe));
   }
 
   void _restartMatch() {
     match
       ..hpA = TriRules.hp.toDouble()
       ..hpB = TriRules.hp.toDouble()
-      ..games = 0;
+      ..games.clear();
     gameNo = 1;
     setState(() => _newGame(meFirst: true));
   }
@@ -237,13 +170,7 @@ class _TriBattleScreenState extends State<TriBattleScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final shieldMine = game.phase == TriPhase.shield && game.current == 0;
-    final atkRank = myTurn &&
-            game.phase == TriPhase.action &&
-            selectedHand != null &&
-            selectedHand! < game.hands[0].length
-        ? game.hands[0][selectedHand!].rank
-        : null;
+    final myTurn = phase == _Phase.picking && game.turnOwner == true;
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(gradient: AppColors.bgGradient),
@@ -252,38 +179,31 @@ class _TriBattleScreenState extends State<TriBattleScreen> {
             Column(children: [
               _topBar(),
               _hpBar(isMe: false),
-              const SizedBox(height: 2),
+              const SizedBox(height: 4),
               Expanded(
-                child: _BoardView(
-                  board: game.boards[1],
-                  opp: game.boards[0],
-                  mine: false,
-                  attackRank: atkRank,
-                  attackVisible: (c) => game.visibleTo(0, c),
-                  shieldCols:
-                      shieldMine ? game.boards[1].openCols.toSet() : const {},
-                  onCellTap: shieldMine ? null : _tapOppCard,
-                  onEmptyColTap:
-                      shieldMine ? (c) => _tapShieldSlot(false, c) : null,
-                ),
-              ),
-              _handStrip(shieldMine),
+                  flex: 3,
+                  child: _Grid(
+                    board: game.boardB,
+                    opp: game.boardA,
+                    mine: false,
+                    preview: null,
+                    onTap: null,
+                  )),
+              _marketStrip(myTurn),
               Expanded(
-                child: _BoardView(
-                  board: game.boards[0],
-                  opp: game.boards[1],
-                  mine: true,
-                  preview: atkRank != null && !shieldMine
-                      ? game.hands[0][selectedHand!]
-                      : null,
-                  shieldCols:
-                      shieldMine ? game.boards[0].openCols.toSet() : const {},
-                  onEmptyColTap: shieldMine
-                      ? (c) => _tapShieldSlot(true, c)
-                      : (myTurn && selectedHand != null ? _placeAt : null),
-                ),
-              ),
-              const SizedBox(height: 2),
+                  flex: 4,
+                  child: _Grid(
+                    board: game.boardA,
+                    opp: game.boardB,
+                    mine: true,
+                    preview: myTurn && selectedMarket != null
+                        ? game.market[selectedMarket!]
+                        : null,
+                    onTap: myTurn && selectedMarket != null
+                        ? (r, c) => _myPlace(selectedMarket!, r, c)
+                        : null,
+                  )),
+              const SizedBox(height: 4),
               _hpBar(isMe: true),
               const SizedBox(height: 6),
             ]),
@@ -296,18 +216,12 @@ class _TriBattleScreenState extends State<TriBattleScreen> {
   }
 
   Widget _topBar() {
-    final String status;
-    if (phase != _Phase.playing) {
-      status = '정산';
-    } else if (game.phase == TriPhase.shield) {
-      status = game.current == 0 ? '방어막 배치 — 아무 필드나!' : '상대가 방어막 배치 중…';
-    } else if (myTurn) {
-      status = selectedHand == null
-          ? '내 차례 — 손패를 고르세요'
-          : '놓을 열 또는 빨간 표적을 탭';
-    } else {
-      status = '상대 차례…';
-    }
+    final myTurn = game.turnOwner == true;
+    final status = phase != _Phase.picking
+        ? '정산'
+        : myTurn
+            ? '내 차례 — 마켓에서 카드를 고르세요'
+            : '상대가 고르는 중…';
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 2, 8, 2),
       child: Row(children: [
@@ -315,7 +229,7 @@ class _TriBattleScreenState extends State<TriBattleScreen> {
           icon: const Icon(Icons.close_rounded, color: AppColors.textMuted),
           onPressed: () => Navigator.of(context).maybePop(),
         ),
-        Text('판 $gameNo · 덱 ${game.deckLeft}',
+        Text('판 $gameNo · 라운드 ${min(game.round + 1, TriRules.rounds)}/3',
             style: const TextStyle(
                 color: AppColors.textMain, fontWeight: FontWeight.w800)),
         const SizedBox(width: 8),
@@ -336,7 +250,6 @@ class _TriBattleScreenState extends State<TriBattleScreen> {
   Widget _hpBar({required bool isMe}) {
     final hp = isMe ? match.hpA : match.hpB;
     final color = isMe ? AppColors.mePrimary : AppColors.oppPrimary;
-    final coins = game.coins[isMe ? 0 : 1];
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14),
       child: Row(children: [
@@ -368,110 +281,55 @@ class _TriBattleScreenState extends State<TriBattleScreen> {
                 fontWeight: FontWeight.w800,
                 fontSize: 13,
                 fontFeatures: [FontFeature.tabularFigures()])),
-        const SizedBox(width: 10),
-        Text('🪙$coins',
-            style: const TextStyle(
-                fontSize: 12,
-                color: AppColors.goldSoft,
-                fontWeight: FontWeight.w800)),
       ]),
     );
   }
 
-  /// 가운데 손패 줄 — 손패 + 뒷면 토글 + 버리기.
-  Widget _handStrip(bool shieldMine) {
-    final hand = game.hands[0];
-    final canFaceDown = game.coins[0] >= TriRules.costFaceDown;
+  /// 가운데 마켓 줄 — 남은 픽 순서를 점으로 보여준다.
+  Widget _marketStrip(bool myTurn) {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 8),
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       decoration: BoxDecoration(
         color: AppColors.panel,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: AppColors.stroke),
       ),
-      child: Row(children: [
-        if (shieldMine && game.pendingShield != null) ...[
-          const Text('🛡', style: TextStyle(fontSize: 20)),
-          const SizedBox(width: 6),
-          _CardFace(
-              card: game.pendingShield!,
-              size: 40,
-              highlight: AppColors.purple),
-          const SizedBox(width: 8),
-          const Expanded(
-            child: Text('방어막 — 내 필드를 채우거나, 상대 조합을 망치세요',
-                style: TextStyle(
-                    fontSize: 11.5,
-                    color: AppColors.textMain,
-                    fontWeight: FontWeight.w700)),
-          ),
-        ] else ...[
-          Expanded(
-            child: SizedBox(
-              height: 52,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: hand.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 6),
-                itemBuilder: (_, i) => GestureDetector(
-                  onTap: () => _tapHand(i),
-                  child: _CardFace(
-                    card: hand[i],
-                    size: 40,
-                    faceDownBadge: faceDownMode && selectedHand == i,
-                    highlight: selectedHand == i ? AppColors.gold : null,
-                  ),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        SizedBox(
+          height: 58,
+          child: game.market.isEmpty
+              ? const Center(
+                  child: Text('다음 라운드 준비…',
+                      style: TextStyle(color: AppColors.textMuted)))
+              : ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  itemCount: game.market.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 6),
+                  itemBuilder: (_, i) {
+                    final selected = selectedMarket == i;
+                    return GestureDetector(
+                      onTap: myTurn
+                          ? () {
+                              _haptic(Haptic.select);
+                              setState(() =>
+                                  selectedMarket = selected ? null : i);
+                            }
+                          : null,
+                      child: _CardFace(
+                        card: game.market[i],
+                        size: 44,
+                        highlight: selected
+                            ? (botPicking
+                                ? AppColors.oppPrimary
+                                : AppColors.gold)
+                            : null,
+                      ),
+                    );
+                  },
                 ),
-              ),
-            ),
-          ),
-          // 뒷면 배치 토글 — 다음 배치를 코인 1로 숨긴다.
-          GestureDetector(
-            onTap: myTurn && canFaceDown
-                ? () {
-                    _haptic(Haptic.select);
-                    setState(() => faceDownMode = !faceDownMode);
-                  }
-                : null,
-            child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              decoration: BoxDecoration(
-                color: faceDownMode ? AppColors.purple : AppColors.surface,
-                borderRadius: BorderRadius.circular(9),
-                border: Border.all(
-                    color:
-                        faceDownMode ? AppColors.purple : AppColors.stroke),
-              ),
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                Icon(Icons.visibility_off_rounded,
-                    size: 16,
-                    color: faceDownMode
-                        ? Colors.white
-                        : canFaceDown
-                            ? AppColors.textMain
-                            : AppColors.textMuted),
-                Text('뒷면 🪙1',
-                    style: TextStyle(
-                        fontSize: 8.5,
-                        fontWeight: FontWeight.w800,
-                        color: faceDownMode
-                            ? Colors.white
-                            : AppColors.textMuted)),
-              ]),
-            ),
-          ),
-          if (myTurn && game.boards[0].openCols.isEmpty) ...[
-            const SizedBox(width: 6),
-            TextButton(
-              onPressed: _discard,
-              child: const Text('버리기',
-                  style: TextStyle(
-                      color: AppColors.lose, fontWeight: FontWeight.w800)),
-            ),
-          ],
-        ],
+        ),
       ]),
     );
   }
@@ -479,25 +337,31 @@ class _TriBattleScreenState extends State<TriBattleScreen> {
   // ---- 정산 오버레이 ----
 
   Widget _resolutionOverlay() {
-    final (winner, dmg) = lastRes!;
-    final iWin = winner == 0;
-    final (sa, sb) = game.scores;
+    final r = lastRes!;
+    final iWin = r.winner == 0;
     return _Scrim(
       child: _Panel(children: [
-        Text(iWin ? '판 승리!' : (winner == 1 ? '판 패배' : '무승부'),
+        Text(iWin ? '판 승리!' : (r.winner == 1 ? '판 패배' : '무승부'),
             style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.w900,
                 color: iWin ? AppColors.win : AppColors.lose)),
         const SizedBox(height: 4),
         Text(
-            winner == -1
+            r.winner == -1
                 ? 'HP 변화 없음'
-                : '${sa.round()} vs ${sb.round()} — ${iWin ? '상대' : '나'} HP −${dmg.ceil()}',
+                : '${iWin ? '상대' : '나'} HP −${r.net.ceil()}',
             style: const TextStyle(
                 color: AppColors.textMain, fontWeight: FontWeight.w700)),
+        if ((iWin ? r.jackpotRowsA : r.jackpotRowsB).isNotEmpty)
+          const Padding(
+            padding: EdgeInsets.only(top: 6),
+            child: Text('🎰 잭팟 행 — 상한 돌파!',
+                style: TextStyle(
+                    color: AppColors.gold, fontWeight: FontWeight.w900)),
+          ),
         const SizedBox(height: 10),
-        _linesTable(),
+        _frontsTable(r),
         const SizedBox(height: 14),
         FilledButton(
           onPressed: _nextGame,
@@ -510,9 +374,9 @@ class _TriBattleScreenState extends State<TriBattleScreen> {
     );
   }
 
-  /// 줄별 정산표 — 어느 줄에서 얼마나 벌었는지 + 조합 라벨.
-  Widget _linesTable() {
-    Widget line(String name, double my, double opp, String combo) {
+  /// 8전선 정산표 — 어느 줄에서 얼마나 벌었는지.
+  Widget _frontsTable(TriResolution r) {
+    Widget line(String name, double my, double opp) {
       final d = my - opp;
       final color = d > 0
           ? AppColors.win
@@ -523,19 +387,13 @@ class _TriBattleScreenState extends State<TriBattleScreen> {
         padding: const EdgeInsets.symmetric(vertical: 1.5),
         child: Row(children: [
           SizedBox(
-              width: 40,
+              width: 44,
               child: Text(name,
                   style: const TextStyle(
                       color: AppColors.textMuted, fontSize: 12))),
-          SizedBox(
-              width: 56,
-              child: Text(combo,
-                  style: const TextStyle(
-                      color: AppColors.goldSoft,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700))),
           Expanded(
-            child: Text('${my.round()}  vs  ${opp.round()}',
+            child: Text(
+                '${my.round()}  vs  ${opp.round()}',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                     color: AppColors.textMain,
@@ -543,9 +401,8 @@ class _TriBattleScreenState extends State<TriBattleScreen> {
                     fontFeatures: [FontFeature.tabularFigures()])),
           ),
           SizedBox(
-            width: 40,
-            child: Text(
-                d == 0 ? '—' : (d > 0 ? '+${d.round()}' : '${d.round()}'),
+            width: 44,
+            child: Text(d == 0 ? '—' : (d > 0 ? '+${d.round()}' : '${d.round()}'),
                 textAlign: TextAlign.right,
                 style: TextStyle(
                     color: color, fontWeight: FontWeight.w800, fontSize: 12.5)),
@@ -554,21 +411,20 @@ class _TriBattleScreenState extends State<TriBattleScreen> {
       );
     }
 
-    final a = game.boards[0], b = game.boards[1];
     final rows = <Widget>[];
     for (var c = 0; c < TriRules.cols; c++) {
-      rows.add(line('열${c + 1}', colScore(a.cols[c]), colScore(b.cols[c]),
-          colCombo(a.cols[c]).label));
+      rows.add(line('열${c + 1}', lineScore(game.boardA.col(c), isRow: false),
+          lineScore(game.boardB.col(c), isRow: false)));
     }
-    for (var r = 0; r < TriRules.rows; r++) {
-      rows.add(line('행${r + 1}', rowScore(a.row(r)), rowScore(b.row(r)),
-          rowCombo(a.row(r)).label));
+    for (var i = 0; i < TriRules.rows; i++) {
+      rows.add(line('행${i + 1}', lineScore(game.boardA.row(i), isRow: true),
+          lineScore(game.boardB.row(i), isRow: true)));
     }
     return Column(mainAxisSize: MainAxisSize.min, children: rows);
   }
 
   Widget _matchOverOverlay() {
-    final iWin = match.matchWinner == 0;
+    final iWin = match.winner == 0;
     return _Scrim(
       child: _Panel(children: [
         Text(iWin ? '🏆 매치 승리!' : '매치 패배',
@@ -577,7 +433,7 @@ class _TriBattleScreenState extends State<TriBattleScreen> {
                 fontWeight: FontWeight.w900,
                 color: iWin ? AppColors.gold : AppColors.lose)),
         const SizedBox(height: 6),
-        Text('${match.games}판 만에 결착',
+        Text('${match.games.length}판 만에 결착',
             style: const TextStyle(color: AppColors.textMuted)),
         const SizedBox(height: 16),
         FilledButton(
@@ -597,156 +453,107 @@ class _TriBattleScreenState extends State<TriBattleScreen> {
   }
 }
 
-// ---- 전장 ----------------------------------------------------------------
+// ---- 격자 ----------------------------------------------------------------
 
-class _BoardView extends StatelessWidget {
-  const _BoardView({
+class _Grid extends StatelessWidget {
+  const _Grid({
     required this.board,
     required this.opp,
     required this.mine,
-    this.preview,
-    this.attackRank,
-    this.attackVisible,
-    this.shieldCols = const {},
-    this.onCellTap,
-    this.onEmptyColTap,
+    required this.preview,
+    required this.onTap,
   });
 
   final TriBoard board;
   final TriBoard opp;
   final bool mine;
 
-  /// 배치 미리보기 중인 카드(내 전장에서만) — 열마다 +점수가 뜬다.
+  /// 배치 미리보기 중인 카드(내 격자에서만). 놓을 수 있는 칸에 +점수가 뜬다.
   final TriCard? preview;
+  final void Function(int r, int c)? onTap;
 
-  /// 공격 미리보기 랭크(상대 전장에서만) — 일치 카드가 빨갛게 빛난다.
-  final int? attackRank;
-  final bool Function(TriCard)? attackVisible;
-
-  /// 방어막 배치 가능 열(하이라이트).
-  final Set<int> shieldCols;
-
-  final void Function(int col, int row)? onCellTap;
-  final void Function(int col)? onEmptyColTap;
-
-  /// [preview]를 [c]열에 놓았을 때 늘어나는 내 점수(열+행).
-  double _gain(int c) {
-    final before = board.score;
-    board.cols[c].add(preview!);
-    final g = board.score - before;
-    board.cols[c].removeLast();
+  /// (r,c)에 [preview]를 놓았을 때 늘어나는 내 점수(행+열).
+  double _gain(int r, int c) {
+    final beforeR = lineScore(board.row(r), isRow: true);
+    final beforeC = lineScore(board.col(c), isRow: false);
+    final cur = board.g[r][c];
+    final wasMerge = cur != null;
+    board.put(r, c, preview!);
+    final g = (lineScore(board.row(r), isRow: true) - beforeR) +
+        (lineScore(board.col(c), isRow: false) - beforeC);
+    board.g[r][c] = cur;
+    if (wasMerge) board.merges--;
     return g;
   }
 
   @override
   Widget build(BuildContext context) {
+    final legal = preview == null
+        ? const <(int, int)>{}
+        : board.places(preview!).toSet();
     return LayoutBuilder(builder: (context, box) {
+      // 셀 크기: 가로 5칸 + 행 배지, 세로 3칸 + 열 배지에 맞춘다.
+      // 62 상한: 큰 화면에서 내 격자가 비대해지지 않게.
       final cell = min(
-          46.0,
-          min((box.maxWidth - 90) / TriRules.cols,
-              (box.maxHeight - 24) / TriRules.rows));
+          62.0,
+          min((box.maxWidth - 60) / TriRules.cols,
+              (box.maxHeight - 26) / TriRules.rows));
+      final gridW = cell * TriRules.cols;
+      Widget rowBadge(int r) {
+        final my = lineScore(board.row(r), isRow: true);
+        final theirs = lineScore(opp.row(r), isRow: true);
+        return _ScoreBadge(
+            score: my, winning: my > theirs, losing: my < theirs, mine: mine);
+      }
 
       Widget colBadge(int c) {
-        final my = colScore(board.cols[c]);
-        final theirs = colScore(opp.cols[c]);
+        final my = lineScore(board.col(c), isRow: false);
+        final theirs = lineScore(opp.col(c), isRow: false);
         return SizedBox(
-          width: cell + 3,
+          width: cell,
           child: Center(
-            child: _ScoreBadge(
-                score: my,
-                label: colCombo(board.cols[c]).label,
-                winning: my > theirs,
-                losing: my < theirs,
-                mine: mine),
-          ),
+              child: _ScoreBadge(
+                  score: my,
+                  winning: my > theirs,
+                  losing: my < theirs,
+                  mine: mine)),
         );
       }
 
-      // 내 전장: 위가 5행(꼭대기) — 스택이 위로 자란다.
-      // 상대 전장: 미러 — 스택이 아래(가운데)로 자라 정면 대치 느낌.
-      final rowOrder = mine
-          ? [for (var r = TriRules.rows - 1; r >= 0; r--) r]
-          : [for (var r = 0; r < TriRules.rows; r++) r];
-
       final grid = Column(mainAxisSize: MainAxisSize.min, children: [
-        if (!mine)
-          Row(mainAxisSize: MainAxisSize.min, children: [
-            for (var c = 0; c < TriRules.cols; c++) colBadge(c),
-            SizedBox(width: cell * 0.9),
-          ]),
-        for (final r in rowOrder)
-          Row(mainAxisSize: MainAxisSize.min, children: [
-            for (var c = 0; c < TriRules.cols; c++) _cell(c, r, cell),
-            SizedBox(
-              width: cell * 0.9,
-              child: _rowBadge(r),
-            ),
-          ]),
+        // 열 배지: 내 격자는 위(상대 쪽을 향해), 상대 격자는 아래.
         if (mine)
+          SizedBox(
+              width: gridW,
+              child: Row(children: [
+                for (var c = 0; c < TriRules.cols; c++) colBadge(c)
+              ])),
+        for (var r = 0; r < TriRules.rows; r++)
           Row(mainAxisSize: MainAxisSize.min, children: [
-            for (var c = 0; c < TriRules.cols; c++) colBadge(c),
-            SizedBox(width: cell * 0.9),
+            for (var c = 0; c < TriRules.cols; c++)
+              _cellWidget(mine ? r : TriRules.rows - 1 - r, c, cell, legal),
+            const SizedBox(width: 4),
+            rowBadge(mine ? r : TriRules.rows - 1 - r),
           ]),
+        if (!mine)
+          SizedBox(
+              width: gridW,
+              child: Row(children: [
+                for (var c = 0; c < TriRules.cols; c++) colBadge(c)
+              ])),
       ]);
+      // FittedBox: 배지 높이까지 합친 실측이 칸 계산과 어긋나도 넘치지 않게.
       return Center(child: FittedBox(fit: BoxFit.scaleDown, child: grid));
     });
   }
 
-  Widget _rowBadge(int r) {
-    final cards = board.row(r);
-    if (cards.length < 2) return const SizedBox.shrink();
-    final combo = rowCombo(cards);
-    if (combo == TriCombo.none) return const SizedBox.shrink();
-    return Center(
-      child: Text(combo.label,
-          style: const TextStyle(
-              fontSize: 8.5,
-              color: AppColors.goldSoft,
-              fontWeight: FontWeight.w800)),
-    );
-  }
-
-  Widget _cell(int c, int r, double size) {
-    final col = board.cols[c];
-    final card = r < col.length ? col[r] : null;
-    // 다음에 채워질 칸(스택 꼭대기)인가.
-    final isNext = r == col.length;
-    final placeable = isNext && preview != null;
-    final shieldable = isNext && shieldCols.contains(c);
-    final attackable = card != null &&
-        attackRank != null &&
-        !card.shield &&
-        card.rank == attackRank &&
-        (attackVisible?.call(card) ?? true);
-
-    final borderColor = attackable
-        ? AppColors.lose
-        : shieldable
-            ? AppColors.purple
-            : placeable
-                ? AppColors.gold
-                : AppColors.stroke;
-    final borderW = attackable || shieldable || placeable ? 2.0 : 1.0;
-
-    Widget? content;
-    if (card != null) {
-      content = _cardInCell(card, size);
-    } else if (placeable) {
-      content = Text('+${_gain(c).round()}',
-          style: const TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w900,
-              color: AppColors.goldSoft));
-    } else if (shieldable) {
-      content = const Text('🛡', style: TextStyle(fontSize: 14));
-    }
-
+  Widget _cellWidget(int r, int c, double size, Set<(int, int)> legal) {
+    final card = board.g[r][c];
+    final isLegal = legal.contains((r, c));
+    final isMerge = isLegal && card != null;
+    final jackpotGlow = card != null && rowTier(board.row(r)) != RowTier.none;
     return GestureDetector(
-      onTap: card != null
-          ? (onCellTap != null ? () => onCellTap!(c, r) : null)
-          : ((placeable || shieldable) && onEmptyColTap != null
-              ? () => onEmptyColTap!(c)
-              : null),
+      onTap: isLegal ? () => onTap?.call(r, c) : null,
       child: Container(
         width: size,
         height: size,
@@ -754,68 +561,67 @@ class _BoardView extends StatelessWidget {
         decoration: BoxDecoration(
           color: card == null ? AppColors.slotRecess : AppColors.cardBody,
           borderRadius: BorderRadius.circular(7),
-          border: Border.all(color: borderColor, width: borderW),
-          boxShadow: attackable
+          border: Border.all(
+            color: isMerge
+                ? AppColors.purple
+                : isLegal
+                    ? AppColors.gold
+                    : jackpotGlow
+                        ? AppColors.gold
+                        : AppColors.stroke,
+            width: isLegal || jackpotGlow ? 2 : 1,
+          ),
+          boxShadow: jackpotGlow
               ? [
                   BoxShadow(
-                      color: AppColors.lose.withValues(alpha: 0.45),
+                      color: AppColors.gold.withValues(alpha: 0.45),
                       blurRadius: 8)
                 ]
               : null,
         ),
-        child: Center(child: content),
+        child: card == null
+            ? (isLegal ? _gainLabel(r, c) : null)
+            : Stack(alignment: Alignment.center, children: [
+                _CardGlyph(card: card, size: size),
+                if (isMerge)
+                  Positioned(
+                      bottom: 1,
+                      child: _gainLabel(r, c, merge: true) ??
+                          const SizedBox.shrink()),
+              ]),
       ),
     );
   }
 
-  /// 칸 속 카드 — 뒷면/훔쳐봄/방어막 상태를 그린다.
-  Widget _cardInCell(TriCard card, double size) {
-    // 상대 전장의 뒷면(안 훔쳐본) 카드 = 카드 등.
-    if (!mine && card.faceDown && !card.peeked) {
-      return Container(
-        margin: const EdgeInsets.all(3),
-        decoration: BoxDecoration(
-          color: AppColors.purple.withValues(alpha: 0.35),
-          borderRadius: BorderRadius.circular(5),
-          border: Border.all(color: AppColors.purple),
+  Widget? _gainLabel(int r, int c, {bool merge = false}) {
+    if (preview == null) return null;
+    final g = _gain(r, c);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+      decoration: merge
+          ? BoxDecoration(
+              color: AppColors.purple, borderRadius: BorderRadius.circular(5))
+          : null,
+      child: Text(
+        merge ? '합성 +${g.round()}' : '+${g.round()}',
+        style: TextStyle(
+          fontSize: merge ? 8.5 : 11,
+          fontWeight: FontWeight.w900,
+          color: merge ? Colors.white : AppColors.goldSoft,
         ),
-        child: const Center(
-            child: Text('?',
-                style: TextStyle(
-                    fontWeight: FontWeight.w900, color: Colors.white))),
-      );
-    }
-    return Stack(alignment: Alignment.center, children: [
-      _CardGlyph(card: card, size: size),
-      if (card.shield)
-        const Positioned(
-            left: 1, top: 0, child: Text('🛡', style: TextStyle(fontSize: 9))),
-      if (card.faceDown && mine)
-        const Positioned(
-            left: 1,
-            top: 0,
-            child: Icon(Icons.visibility_off_rounded,
-                size: 10, color: AppColors.purple)),
-      if (card.peeked)
-        const Positioned(
-            right: 1,
-            top: 0,
-            child: Icon(Icons.remove_red_eye_rounded,
-                size: 10, color: AppColors.lose)),
-    ]);
+      ),
+    );
   }
 }
 
-/// 열 점수 배지 — 색이 곧 전선 상황(초록 우세 / 빨강 열세 / 회색 동률).
+/// 줄 점수 배지 — 색이 곧 전선 상황(초록 우세 / 빨강 열세 / 회색 동률).
 class _ScoreBadge extends StatelessWidget {
   const _ScoreBadge(
       {required this.score,
-      required this.label,
       required this.winning,
       required this.losing,
       required this.mine});
   final double score;
-  final String label;
   final bool winning, losing, mine;
 
   @override
@@ -828,40 +634,29 @@ class _ScoreBadge extends StatelessWidget {
                 ? AppColors.lose
                 : AppColors.textMuted;
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 1, horizontal: 6),
+      width: 34,
+      padding: const EdgeInsets.symmetric(vertical: 1),
       decoration: BoxDecoration(
         color: AppColors.panel,
         borderRadius: BorderRadius.circular(6),
       ),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Text('${score.round()}',
-            style: TextStyle(
-                fontSize: 10.5,
-                fontWeight: FontWeight.w800,
-                color: color,
-                fontFeatures: const [FontFeature.tabularFigures()])),
-        if (label != '—')
-          Text(label,
-              style: const TextStyle(
-                  fontSize: 7.5,
-                  color: AppColors.goldSoft,
-                  fontWeight: FontWeight.w800)),
-      ]),
+      child: Text('${score.round()}',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w800,
+              color: color,
+              fontFeatures: const [FontFeature.tabularFigures()])),
     );
   }
 }
 
-/// 손패·방어막 카드(원소 아이콘 + 숫자).
+/// 마켓의 카드(원소 아이콘 + 숫자).
 class _CardFace extends StatelessWidget {
-  const _CardFace(
-      {required this.card,
-      required this.size,
-      this.highlight,
-      this.faceDownBadge = false});
+  const _CardFace({required this.card, required this.size, this.highlight});
   final TriCard card;
   final double size;
   final Color? highlight;
-  final bool faceDownBadge;
 
   @override
   Widget build(BuildContext context) {
@@ -882,15 +677,7 @@ class _CardFace extends StatelessWidget {
               ]
             : null,
       ),
-      child: Stack(alignment: Alignment.center, children: [
-        _CardGlyph(card: card, size: size),
-        if (faceDownBadge)
-          const Positioned(
-              left: 2,
-              top: 2,
-              child: Icon(Icons.visibility_off_rounded,
-                  size: 12, color: AppColors.purple)),
-      ]),
+      child: _CardGlyph(card: card, size: size),
     );
   }
 }
@@ -903,18 +690,19 @@ class _CardGlyph extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final big = card.value > 9; // 합성값은 크게 강조
     return Stack(alignment: Alignment.center, children: [
       Opacity(opacity: 0.9, child: ElementIcon(card.elem, size: size * 0.62)),
       Positioned(
         right: 2,
         bottom: 0,
         child: Text(
-          '${card.rank}',
+          '${card.value}',
           style: TextStyle(
-            fontSize: size * 0.4,
+            fontSize: size * (big ? 0.34 : 0.4),
             height: 1,
             fontWeight: FontWeight.w900,
-            color: AppColors.ink,
+            color: big ? AppColors.purple : AppColors.ink,
             shadows: const [
               Shadow(color: AppColors.cardBody, blurRadius: 3),
               Shadow(color: AppColors.cardBody, blurRadius: 3),

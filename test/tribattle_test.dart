@@ -1,235 +1,174 @@
+import 'dart:math';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:score_poker/domain/tribattle.dart';
 
-TriCard c(int rank, [TriElement e = TriElement.water]) => TriCard(rank, e);
+TriCard w(int v) => TriCard(v, TriElement.water);
+TriCard f(int v) => TriCard(v, TriElement.fire);
+TriCard t(int v) => TriCard(v, TriElement.forest);
 
 void main() {
-  group('조합 판정', () {
-    test('열: 페어/트리플/풀하우스/포카드/파이브', () {
-      expect(colCombo([c(3), c(3)]), TriCombo.pair);
-      expect(colCombo([c(3), c(3), c(3)]), TriCombo.trips);
-      expect(colCombo([c(3), c(3), c(3), c(7), c(7)]), TriCombo.fullHouse);
-      expect(colCombo([c(3), c(3), c(3), c(3), c(7)]), TriCombo.quad);
-      expect(colCombo([c(3), c(3), c(3), c(3), c(3)]), TriCombo.five);
+  group('합성 — 이기는 원소가 남는다', () {
+    test('같은 원소는 유지', () {
+      final m = w(3).merge(w(3));
+      expect(m.value, 12); // (3+3)×2
+      expect(m.elem, TriElement.water);
     });
-
-    test('열: 연속 — 3연속과 5연속, 순서 무관', () {
-      expect(colCombo([c(5), c(3), c(4)]), TriCombo.straight3);
-      expect(colCombo([c(7), c(3), c(4), c(5), c(6)]), TriCombo.straight5);
-      // 연속 3 + 페어면 더 높은 쪽(트리플 아님 — 페어보다 연속3이 위).
-      expect(colCombo([c(3), c(4), c(5), c(9), c(9)]), TriCombo.straight3);
+    test('물은 불을 끈다', () {
+      expect(w(3).merge(f(3)).elem, TriElement.water);
+      expect(f(3).merge(w(3)).elem, TriElement.water);
     });
-
-    test('행: 트리플 > 연속 > 페어', () {
-      expect(rowCombo([c(4), c(4), c(4)]), TriCombo.trips);
-      expect(rowCombo([c(4), c(5), c(6)]), TriCombo.straight3);
-      expect(rowCombo([c(4), c(4), c(9)]), TriCombo.pair);
+    test('불은 숲을 태운다 / 숲은 물을 마신다', () {
+      expect(f(5).merge(t(5)).elem, TriElement.fire);
+      expect(t(7).merge(w(7)).elem, TriElement.forest);
     });
   });
 
-  group('점수', () {
-    test('열 점수 = 합 × 배율', () {
-      expect(colScore([c(3), c(3)]), 6 * TriRules.colPair);
-      // 원소를 섞어 플러시 없이 파이브만.
-      expect(
-          colScore([
-            c(2),
-            c(2, TriElement.fire),
-            c(2),
-            c(2, TriElement.forest),
-            c(2)
-          ]),
-          10 * TriRules.colFive);
+  group('조합 점수 = 랭크 합 × 배율', () {
+    test('행 페어 ×2 (미완성 줄 — 순수 배율 없음)', () {
+      expect(lineScore([w(3), f(3), w(4), w(5), null], isRow: true),
+          (3 + 3 + 4 + 5) * 2);
     });
-
-    test('플러시는 줄이 가득 찼을 때만 — 열 5장 원소 통일 ×2', () {
-      final flush = [for (var i = 1; i <= 5; i++) c(i, TriElement.fire)];
-      expect(colScore(flush), 15 * TriRules.colStraight5 * TriRules.flushCol);
-      // 4장까지는 플러시 미인정.
-      expect(colScore(flush.sublist(0, 4)),
-          (1 + 2 + 3 + 4) * TriRules.colStraight3);
+    test('행이 가득 차면 순수 4장 배율이 함께 붙는다', () {
+      // 물4+불1 페어: 30 × 순수4장 1.25 = 37.5 아님 — 페어 ×2 먼저: 24×2×1.25.
+      expect(lineScore([w(3), f(3), w(4), w(5), w(9)], isRow: true),
+          (3 + 3 + 4 + 5 + 9) * 2 * 1.25);
     });
-  });
-
-  group('게임 진행', () {
-    test('시작: 패 2장 + 첫 드로 = 선턴 3장, 코인 5', () {
-      final g = TriGame(seed: 1);
-      expect(g.hands[0].length, TriRules.startHand + 1);
-      expect(g.hands[1].length, TriRules.startHand);
-      expect(g.coins[0], TriRules.startCoins);
-      expect(g.deckLeft, 81 - TriRules.startHand * 2 - 1);
+    test('열 트리플 ×5', () {
+      expect(lineScore([w(4), f(4), t(4)], isRow: false), 12 * 5);
     });
-
-    test('배치는 아래부터 쌓이고 턴이 넘어간다', () {
-      final g = TriGame(seed: 1);
-      g.place(0, 0);
-      expect(g.boards[0].cols[0].length, 1);
-      expect(g.current, 1);
-      expect(g.hands[1].length, TriRules.startHand + 1, reason: '상대 드로');
+    test('행 5스트레이트 ×5', () {
+      expect(lineScore([w(1), f(2), w(3), t(4), w(5)], isRow: true), 15 * 5);
     });
-
-    test('뒷면 배치는 코인 1 소모 + 상대에게 안 보임', () {
-      final g = TriGame(seed: 1);
-      g.place(0, 0, faceDown: true);
-      expect(g.coins[0], TriRules.startCoins - 1);
-      final card = g.boards[0].cols[0][0];
-      expect(card.faceDown, isTrue);
-      expect(g.visibleTo(1, card), isFalse);
+    test('합성값도 스트레이트에 낀다 (10,11,12)', () {
+      // 값만 본다 — 합성으로 만든 10~12도 연속이면 스트레이트.
+      expect(lineScore([w(10), f(11), w(12)], isRow: false), 33 * 4);
     });
-
-    test('훔쳐보기: 코인 1로 나에게만 공개, 턴 유지', () {
-      final g = TriGame(seed: 1);
-      g.place(0, 0, faceDown: true); // 나 → 뒷면
-      // 상대 턴을 앞면 배치로 소비.
-      g.place(0, 0);
-      // 상대(1)가 아니라 내(0) 차례. 내가 상대 카드를 볼 필요는 없으니
-      // 상대가 내 뒷면을 훔쳐보는 상황을 만들자: 내 턴 소비.
-      g.place(0, 1);
-      expect(g.current, 1);
-      final target = g.boards[0].cols[0][0];
-      final coinsBefore = g.coins[1];
-      g.peek(0, 0);
-      expect(g.coins[1], coinsBefore - 1);
-      expect(target.peeked, isTrue);
-      expect(g.visibleTo(1, target), isTrue);
-      expect(g.current, 1, reason: '훔쳐보기는 턴을 안 쓴다');
-    });
-
-    test('공격: 랭크 일치 → 두 장 소멸 + 방어막 단계', () {
-      final g = TriGame(seed: 1);
-      // 상대 필드에 카드 하나 만들기.
-      g.place(0, 0); // 나
-      final placed = g.boards[1].cols.isEmpty;
-      expect(placed, isFalse);
-      g.place(0, 1); // 상대가 1열에 배치
-      final target = g.boards[1].cols[1][0];
-      // 내 손에서 같은 랭크를 찾거나, 없으면 배치로 턴을 소비하며 찾는다.
-      var guard = 0;
-      while (g.phase == TriPhase.action && guard++ < 60) {
-        final idx =
-            g.hands[g.current].indexWhere((h) => h.rank == target.rank);
-        final targets = g.current == 0 && idx >= 0
-            ? g.attackTargets(0, target.rank)
-            : const <(int, int)>[];
-        if (g.current == 0 && idx >= 0 && targets.isNotEmpty) {
-          final before = g.boards[1].cols[targets.first.$1].length;
-          g.attack(idx, targets.first.$1, targets.first.$2);
-          expect(g.boards[1].cols[targets.first.$1].length, before - 1,
-              reason: '표적 소멸(중력)');
-          expect(g.phase, TriPhase.shield);
-          expect(g.pendingShield!.shield, isTrue);
-          return;
-        }
-        // 못 때리면 그냥 배치해서 진행.
-        final open = g.boards[g.current].openCols;
-        if (open.isEmpty) break;
-        g.place(0, open.first);
-      }
-      fail('60턴 안에 공격 기회가 안 나옴 — 시드 확인');
-    });
-
-    test('방어막은 상대 필드에도 놓을 수 있다', () {
-      final g = TriGame(seed: 3);
-      // 공격 상황을 봇으로 빠르게 만든다.
-      const bot = TriBot();
-      var guard = 0;
-      while (!g.finished && guard++ < 200) {
-        final m = bot.choose(g);
-        switch (m) {
-          case BotAttack(:final handIdx, :final col, :final row):
-            g.attack(handIdx, col, row);
-            if (g.phase == TriPhase.shield) {
-              final slots = g.shieldSlots();
-              final oppSlot =
-                  slots.where((s) => !s.$1).toList();
-              if (oppSlot.isNotEmpty) {
-                final before =
-                    g.boards[1 - g.current].cols[oppSlot.first.$2].length;
-                g.placeShield(false, oppSlot.first.$2);
-                // placeShield 후 턴이 넘어가 current가 바뀌었다 — 원래 상대 보드 검사.
-                expect(
-                    g.boards[g.current].cols[oppSlot.first.$2].length >
-                        before,
-                    isTrue,
-                    reason: '방어막이 상대(=이제 current) 필드에 박혔다');
-                return;
-              }
-              g.placeShield(true, g.shieldSlots().first.$2);
-            }
-          case BotPlace(:final handIdx, :final col, :final faceDown):
-            g.place(handIdx, col, faceDown: faceDown);
-          case BotPeek(:final col, :final row):
-            g.peek(col, row);
-          case BotShield(:final ownField, :final col):
-            g.placeShield(ownField, col);
-          case BotDiscard(:final handIdx):
-            g.discard(handIdx);
-        }
-      }
-      fail('공격+상대 필드 방어막 상황이 안 나옴 — 시드 확인');
-    });
-
-    test('판은 끝난다(보드 완성 또는 덱 소진) + 끝나면 전부 공개', () {
-      final g = TriGame(seed: 5);
-      const bot = TriBot();
-      var guard = 0;
-      while (!g.finished && guard++ < 500) {
-        final m = bot.choose(g);
-        switch (m) {
-          case BotAttack(:final handIdx, :final col, :final row):
-            g.attack(handIdx, col, row);
-          case BotPlace(:final handIdx, :final col, :final faceDown):
-            g.place(handIdx, col, faceDown: faceDown);
-          case BotPeek(:final col, :final row):
-            g.peek(col, row);
-          case BotShield(:final ownField, :final col):
-            g.placeShield(ownField, col);
-          case BotDiscard(:final handIdx):
-            g.discard(handIdx);
-        }
-      }
-      expect(g.finished, isTrue);
-      expect(g.winner, isNotNull);
-      for (final b in g.boards) {
-        for (final col in b.cols) {
-          for (final card in col) {
-            expect(card.faceDown, isFalse, reason: '정산 시 전 카드 공개');
-          }
-        }
-      }
+    test('파이브 ×8', () {
+      expect(lineScore([w(9), f(9), t(9), w(9), f(9)], isRow: true), 45 * 8);
     });
   });
 
-  group('매치', () {
-    test('진 쪽이 점수차만큼 깎인다', () {
-      final g = TriGame(seed: 5);
-      const bot = TriBot();
-      var guard = 0;
-      while (!g.finished && guard++ < 500) {
-        final m = bot.choose(g);
-        switch (m) {
-          case BotAttack(:final handIdx, :final col, :final row):
-            g.attack(handIdx, col, row);
-          case BotPlace(:final handIdx, :final col, :final faceDown):
-            g.place(handIdx, col, faceDown: faceDown);
-          case BotPeek(:final col, :final row):
-            g.peek(col, row);
-          case BotShield(:final ownField, :final col):
-            g.placeShield(ownField, col);
-          case BotDiscard(:final handIdx):
-            g.discard(handIdx);
+  group('순수 배율 — 줄이 가득 찼을 때만', () {
+    test('열 3장 전부 물 ×1.25', () {
+      expect(lineScore([w(2), w(5), w(8)], isRow: false), (15) * 1 * 1.25);
+    });
+    test('열 2장 물은 아직 0 보너스', () {
+      expect(lineScore([w(2), w(5), null], isRow: false), 7);
+    });
+    test('행 4장 순수 ×1.25, 5장 순수 ×1.5', () {
+      expect(lineScore([w(1), w(3), w(5), w(7), f(8)], isRow: true),
+          24 * 1.25);
+      expect(lineScore([w(1), w(3), w(5), w(7), w(8)], isRow: true),
+          closeTo(24 * 1.5, 1e-9));
+    });
+  });
+
+  group('전선 정산', () {
+    test('열 상한 10 — 압승 초과분은 낭비', () {
+      final a = TriBoard()..put(0, 0, w(9))..put(1, 0, f(9))..put(2, 0, t(9));
+      final b = TriBoard()..put(0, 0, w(1));
+      final r = resolve(a, b);
+      // 열0: 트리플 135 vs 1 → 상한 10. 행 기여: 행0 9−1=8, 행1·행2 각 9.
+      expect(r.dmgA, TriRules.colCap + 8 + 9 + 9);
+    });
+    test('포카드 행은 상한 60, 파이브 행은 무제한', () {
+      TriBoard quadRow() => TriBoard()
+        ..put(0, 0, w(9))
+        ..put(0, 1, f(9))
+        ..put(0, 2, t(9))
+        ..put(0, 3, w(9))
+        ..put(0, 4, f(8));
+      final a = quadRow();
+      final r = resolve(a, TriBoard());
+      // 행 데미지는 quadRowCap을 넘지 못하지만 일반 상한(20)은 넘는다.
+      // 열 기여: 단일 카드 9,9,9,9,8 = 44 (상한 10 미달). 행 = 포카드 220 → 상한 60.
+      final rowDmg = r.dmgA - (9 + 9 + 9 + 9 + 8);
+      expect(rowDmg, greaterThan(TriRules.rowCap));
+      expect(rowDmg, TriRules.quadRowCap);
+
+      final five = TriBoard()
+        ..put(0, 0, w(9))
+        ..put(0, 1, f(9))
+        ..put(0, 2, t(9))
+        ..put(0, 3, w(9))
+        ..put(0, 4, f(9));
+      final r2 = resolve(five, TriBoard());
+      expect(r2.jackpotRowsA, [0]);
+      // 파이브 행 점수 45×8×?(순수 아님) = 360 — 상한 없이 그대로.
+      expect(r2.dmgA, greaterThan(300));
+    });
+    test('진 쪽 포카드는 상한을 열어주지 않는다', () {
+      final a = TriBoard() // 강한 일반 행
+        ..put(0, 0, w(9))
+        ..put(0, 1, w(8))
+        ..put(0, 2, w(7))
+        ..put(0, 3, w(6))
+        ..put(0, 4, w(5)); // 스트레이트+순수
+      final b = TriBoard() // 약한 포카드 행 (1×4)
+        ..put(0, 0, w(1))
+        ..put(0, 1, f(1))
+        ..put(0, 2, t(1))
+        ..put(0, 3, w(1));
+      final r = resolve(a, b);
+      // a가 이긴다 — 이긴 쪽(a)는 포카드가 아니므로 행 상한은 20.
+      final rowDmg = r.dmgA - TriRules.colCap * 5;
+      expect(rowDmg, lessThanOrEqualTo(TriRules.rowCap));
+    });
+    test('열 대결 상성 ×1.5 — 물 열이 불 열을 잡는다', () {
+      final a = TriBoard()..put(0, 0, w(5))..put(1, 0, w(5)); // 물 페어 25
+      final b = TriBoard()..put(0, 0, f(5))..put(1, 0, f(5)); // 불 페어 25
+      final r = resolve(a, b);
+      expect(r.winner, 0); // 동점이지만 상성으로 물이 이긴다
+    });
+  });
+
+  group('판 진행(TriGame)', () {
+    test('픽 순서 1-2-2-2-2-1, 라운드마다 마켓 11장, 3라운드 뒤 종료', () {
+      final g = TriGame(seed: 1);
+      var picksA = 0, picksB = 0;
+      const bot = TriGreedyBot();
+      while (!g.finished) {
+        expect(g.market.length, lessThanOrEqualTo(TriRules.marketSize));
+        final owner = g.turnOwner!;
+        final (i, r, c) = bot.choose(g)!;
+        g.pickAndPlace(i, r, c);
+        owner ? picksA++ : picksB++;
+      }
+      expect(picksA, 15);
+      expect(picksB, 15);
+      expect(g.turnOwner, isNull);
+    });
+    test('같은 시드는 같은 판을 재현한다', () {
+      String run(int seed) {
+        final g = TriGame(seed: seed);
+        const bot = TriGreedyBot();
+        while (!g.finished) {
+          final (i, r, c) = bot.choose(g)!;
+          g.pickAndPlace(i, r, c);
         }
+        final r = resolve(g.boardA, g.boardB);
+        return '${r.dmgA}/${r.dmgB}';
       }
-      final match = TriMatch();
-      final (winner, net) = match.applyGame(g);
-      final (a, b) = g.scores;
-      expect(net, (a - b).abs());
-      if (winner == 0) {
-        expect(match.hpB, TriRules.hp - net);
-        expect(match.hpA, TriRules.hp);
-      } else if (winner == 1) {
-        expect(match.hpA, TriRules.hp - net);
+
+      expect(run(42), run(42));
+      expect(run(42) == run(43), isFalse);
+    });
+    test('HP 매치 — 진 쪽만 순수차만큼 깎이고 0이면 끝난다', () {
+      final m = TriMatch();
+      final rng = Random(5);
+      var guard = 0;
+      while (!m.over && guard++ < 12) {
+        final g = TriGame(seed: rng.nextInt(1 << 30));
+        const bot = TriGreedyBot();
+        while (!g.finished) {
+          final (i, r, c) = bot.choose(g)!;
+          g.pickAndPlace(i, r, c);
+        }
+        m.applyGame(resolve(g.boardA, g.boardB));
       }
+      expect(m.over, isTrue, reason: '12판 안에 승부가 나야 한다(시뮬 중앙값 3판)');
+      expect(m.winner, isNotNull);
     });
   });
 }
