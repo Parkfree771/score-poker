@@ -22,8 +22,8 @@ import 'package:score_poker/ui/how_to_play_screen.dart';
 import 'package:score_poker/ui/rules_screen.dart';
 import 'package:score_poker/ui/settings_screen.dart';
 import 'package:score_poker/ui/shop_screen.dart';
-import 'package:score_poker/domain/tribattle.dart';
-import 'package:score_poker/ui/tribattle_screen.dart';
+import 'package:score_poker/domain/strike.dart';
+import 'package:score_poker/ui/strike_screen.dart';
 import 'package:score_poker/ui/widgets/celebration.dart';
 import 'package:score_poker/ui/theme.dart';
 import 'package:score_poker/ui/widgets/joker_card.dart';
@@ -389,29 +389,29 @@ void main() {
     await expectLater(find.byType(Scaffold), matchesGoldenFile('goldens/shot_45_joker_showcase.png'));
   });
 
-  testWidgets('tribattle mid-pick', (tester) async {
+  testWidgets('strike mid-game', (tester) async {
     await setScreen(tester, _portrait);
-    await tester.pumpWidget(_app(const TriBattleScreen(seed: 11)));
+    await tester
+        .pumpWidget(_app(const StrikeScreen(seed: 11, instantMoves: true)));
     await tester.pump();
-    // Image.memory(원소 PNG)는 비동기 디코드 — runAsync로 실제 완료시켜 골든에 찍는다.
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 150)));
+    // 내 첫 수를 진행하고 봇 턴이 끝날 때까지 돌려 보드가 찬 장면을 만든다.
+    final st = tester.state(find.byType(StrikeScreen)) as StrikeScreenState;
+    await st.placeForTest(0, 0);
     await tester.pump();
-    // 내 첫 픽 몇 수를 상태로 직접 진행해 보드가 찬 장면을 만든다.
-    final st = tester.state(find.byType(TriBattleScreen)) as dynamic;
-    st.myPlaceForTest(0, 0, 0);
-    await tester.pump();
-    // 봇 픽이 몇 장 진행될 때까지 돌린다.
-    for (var i = 0; i < 20; i++) {
+    for (var i = 0; i < 30; i++) {
       await tester.pump(const Duration(milliseconds: 300));
-      if ((st.game as TriGame).turnOwner == true) break;
+      final g = st.game;
+      if (!g.finished && g.current == 0 && g.phase == StrikePhase.action) {
+        break;
+      }
     }
-    // 마켓 카드 하나 선택 — 배치 미리보기(+점수)가 보이는 장면.
-    st.selectedMarket = 0;
+    // 손패 하나 선택 — 배치 칸(금색)·족보 미리보기가 보이는 장면.
+    st.selectedHand = 0;
     // ignore: invalid_use_of_protected_member
     st.setState(() {});
     await tester.pump();
     await expectLater(
-        find.byType(TriBattleScreen), matchesGoldenFile('goldens/shot_46_tribattle.png'));
+        find.byType(StrikeScreen), matchesGoldenFile('goldens/shot_46_strike.png'));
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump(const Duration(seconds: 1));
   });

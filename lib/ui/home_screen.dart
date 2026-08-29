@@ -12,7 +12,7 @@ import 'match_screen.dart';
 import 'ranking_screen.dart';
 import 'settings_screen.dart';
 import 'shop_screen.dart';
-import 'tribattle_screen.dart';
+import 'strike_screen.dart';
 import 'theme.dart';
 
 /// 메인 메뉴: 모드 선택(사람 vs AI / 사람 vs 사람).
@@ -62,13 +62,12 @@ class _HomeScreenState extends State<HomeScreen> {
     final l10n = AppLocalizations.of(context);
     return Scaffold(
       appBar: AppBar(
-        // 디버그 빌드: 제목을 길게 누르면 연출 실험실(강타·칩 튕김을 버튼으로).
+        // 제목 길게 누르기 = 개발자 테스트 메뉴(연출 실험실 / 스트라이크 시드 판).
         title: GestureDetector(
-          // 연출 실험실 — 릴리스에서도 연다(비공개 테스트 중 실기기로 소리·타이밍을
-          // 잡아야 한다). 제목 길게 누르기라 일반 유저가 우연히 열 일은 거의 없고,
-          // 열려도 고정 판 데모일 뿐이다. 프로덕션 승급 전에 유지 여부 재검토.
-          onLongPress: () => Navigator.of(context).push(MaterialPageRoute<void>(
-              builder: (_) => GameScreen(initialGame: fxLabState(), fxLab: true))),
+          // 릴리스에서도 연다(비공개 테스트 중 실기기로 소리·타이밍을 잡아야 한다).
+          // 제목 길게 누르기라 일반 유저가 우연히 열 일은 거의 없다.
+          // 프로덕션 승급 전에 유지 여부 재검토.
+          onLongPress: () => _showDevMenu(context),
           child: Text(l10n.appTitle),
         ),
         actions: [
@@ -120,16 +119,16 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   const SizedBox(height: 14),
-                  // 트라이 배틀 프로토타입 — 실험 라벨. 정식 승격 시 ARB로 옮긴다.
+                  // 스트라이크 프로토타입 — 실험 라벨. 정식 승격 시 ARB로 옮긴다.
                   _ModeCard(
                     asset: 'assets/lottie/flame.json',
                     glow: AppColors.oppPrimary,
-                    title: '트라이 배틀',
-                    description: '물·불·숲 드래프트 전략 배틀 — 새 모드 실험판',
+                    title: '스트라이크',
+                    description: '뽑고, 숨기고, 같은 숫자를 쳐낸다 — 새 규칙 실험판',
                     badge: '실험',
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(
-                          builder: (_) => const TriBattleScreen()),
+                          builder: (_) => const StrikeScreen()),
                     ),
                   ),
                   const SizedBox(height: 14),
@@ -158,6 +157,41 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  /// 개발자 테스트 메뉴 — 연출 실험실(본편 고정 판) / 스트라이크 시드 판.
+  void _showDevMenu(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      builder: (sheet) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(
+            leading: const Icon(Icons.science_rounded, color: AppColors.gold),
+            title: const Text('연출 실험실 (본편)'),
+            subtitle: const Text('강타·칩 튕김을 버튼으로 재생하는 고정 판'),
+            onTap: () {
+              Navigator.of(sheet).pop();
+              Navigator.of(context).push(MaterialPageRoute<void>(
+                  builder: (_) =>
+                      GameScreen(initialGame: fxLabState(), fxLab: true)));
+            },
+          ),
+          ListTile(
+            leading:
+                const Icon(Icons.bolt_rounded, color: AppColors.oppPrimary),
+            title: const Text('스트라이크 테스트 판'),
+            subtitle: const Text('시드 고정(11) — 새 규칙을 같은 판으로 반복 테스트'),
+            onTap: () {
+              Navigator.of(sheet).pop();
+              Navigator.of(context).push(MaterialPageRoute<void>(
+                  builder: (_) => const StrikeScreen(seed: 11)));
+            },
+          ),
+          const SizedBox(height: 8),
+        ]),
       ),
     );
   }
