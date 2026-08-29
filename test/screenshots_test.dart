@@ -22,8 +22,6 @@ import 'package:score_poker/ui/how_to_play_screen.dart';
 import 'package:score_poker/ui/rules_screen.dart';
 import 'package:score_poker/ui/settings_screen.dart';
 import 'package:score_poker/ui/shop_screen.dart';
-import 'package:score_poker/domain/strike.dart';
-import 'package:score_poker/ui/strike_screen.dart';
 import 'package:score_poker/ui/widgets/celebration.dart';
 import 'package:score_poker/ui/theme.dart';
 import 'package:score_poker/ui/widgets/joker_card.dart';
@@ -97,8 +95,7 @@ Widget _appWithSettings(Widget child, {String locale = 'ko', Locale? selected}) 
 void _place(ScoreGame g, PlayerId p, int row, List<PlayingCard> cards,
     {Set<int> hidden = const {}}) {
   for (var i = 0; i < cards.length; i++) {
-    g.fields[p]![row][i] =
-        VeiledSlot(cards[i], round: i, faceUp: !hidden.contains(i));
+    g.fields[p]![row][i] = VeiledSlot(cards[i], faceUp: !hidden.contains(i));
   }
 }
 
@@ -115,11 +112,10 @@ ScoreGame _demoState() {
   _place(g, PlayerId.p1, 1, [const PlayingCard(9, sp), const PlayingCard(9, h)],
       hidden: {1});
   _place(g, PlayerId.p1, 2, [const PlayingCard(3, c)], hidden: {0});
-  g.round = 2;
   g.veilLeft[PlayerId.p0] = 2;
   g.veilLeft[PlayerId.p1] = 1;
-  // 이번 라운드에 놓은 카드(숨김 지정 가능) 한 장을 남겨 둔다.
-  g.fields[PlayerId.p0]![2][1] = VeiledSlot(const PlayingCard(7, sp), round: 2);
+  // 내 뒷면 카드(칩으로 숨긴 것) 한 장을 남겨 둔다.
+  g.fields[PlayerId.p0]![2][1] = VeiledSlot(const PlayingCard(7, sp));
   g.hands[PlayerId.p0]!
     ..clear()
     ..addAll([
@@ -134,19 +130,16 @@ ScoreGame _demoState() {
   return g;
 }
 
-/// 조커가 한 화면에 다 보이는 판: 손패의 조커, 내 와일드(뒷면), 상대가 내 카드에 예고한
-/// 강타(떠 있는 배지), 내가 강타로 바꿔 놓은 상대 카드(앉은 배지).
+/// 조커가 한 화면에 다 보이는 판: 손패의 조커 + 내 와일드(앞면 K♥) + 방어막 칸.
 ScoreGame _jokerState() {
   final g = _demoState();
   g.hands[PlayerId.p0]!.insert(0, const PlayingCard.joker());
-  // 내 와일드: 이번 라운드에 K♥로 놓아 둔 뒷면.
-  g.fields[PlayerId.p0]![0][2] = VeiledSlot(const PlayingCard(13, Suit.hearts), round: 2, wild: true);
-  // 상대가 내 (1,0)에 강타 예고.
-  g.pendingStrikes[PlayerId.p1]!.add(const JokerStrike(
-      by: PlayerId.p1, row: 1, col: 0, card: PlayingCard(2, Suit.clubs)));
-  // 지난 라운드에 내가 상대 (0,0)을 2♠로 바꿔 놓았다.
-  g.fields[PlayerId.p1]![0][0] =
-      VeiledSlot(const PlayingCard(2, Suit.spades), round: 0, faceUp: true, strikeBy: PlayerId.p0);
+  // 내 와일드: K♥로 놓아 둔 칸(조커 얼굴 + K♥ 모서리).
+  g.fields[PlayerId.p0]![0][2] =
+      VeiledSlot(const PlayingCard(13, Suit.hearts), faceUp: true, wild: true);
+  // 상대 줄에 박힌 방어막 카드(🛡 — 공격 불가).
+  g.fields[PlayerId.p1]![2][1] =
+      VeiledSlot(const PlayingCard(2, Suit.spades), faceUp: true, shield: true);
   return g;
 }
 
@@ -183,8 +176,7 @@ ScoreGame _finishedState() {
   ]);
   g.hands[PlayerId.p0]!.clear();
   g.hands[PlayerId.p1]!.clear();
-  g.round = ScoreGame.totalRounds - 1;
-  g.revealDone = true;
+  g.phase = TurnPhase.finished;
   g.veilLeft[PlayerId.p0] = 1;
   g.veilLeft[PlayerId.p1] = 0;
   return g;
@@ -361,9 +353,10 @@ void main() {
     await tester.tap(find.byWidgetPredicate(
         (w) => w.key is GlobalKey && w.key.toString().contains('hand-0')));
     await tester.pump();
+    // v4: 조커는 내 줄에만(와일드) — 내 줄0의 다음 칸을 탭해 시트를 연다.
     await tester.tap(
         find.byWidgetPredicate(
-            (w) => w.key is GlobalKey && w.key.toString().contains('cell-p1-0-1')),
+            (w) => w.key is GlobalKey && w.key.toString().contains('cell-p0-0-3')),
         warnIfMissed: false);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
@@ -387,33 +380,6 @@ void main() {
     await tester.pump();
     await pumpLottie(tester);
     await expectLater(find.byType(Scaffold), matchesGoldenFile('goldens/shot_45_joker_showcase.png'));
-  });
-
-  testWidgets('strike mid-game', (tester) async {
-    await setScreen(tester, _portrait);
-    await tester
-        .pumpWidget(_app(const StrikeScreen(seed: 11, instantMoves: true)));
-    await tester.pump();
-    // 내 첫 수를 진행하고 봇 턴이 끝날 때까지 돌려 보드가 찬 장면을 만든다.
-    final st = tester.state(find.byType(StrikeScreen)) as StrikeScreenState;
-    await st.placeForTest(0, 0);
-    await tester.pump();
-    for (var i = 0; i < 30; i++) {
-      await tester.pump(const Duration(milliseconds: 300));
-      final g = st.game;
-      if (!g.finished && g.current == 0 && g.phase == StrikePhase.action) {
-        break;
-      }
-    }
-    // 손패 하나 선택 — 배치 칸(금색)·족보 미리보기가 보이는 장면.
-    st.selectedHand = 0;
-    // ignore: invalid_use_of_protected_member
-    st.setState(() {});
-    await tester.pump();
-    await expectLater(
-        find.byType(StrikeScreen), matchesGoldenFile('goldens/shot_46_strike.png'));
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pump(const Duration(seconds: 1));
   });
 
   testWidgets('match screen portrait', (tester) async {
@@ -605,7 +571,6 @@ void main() {
       const PlayingCard(10, d),
     ]);
     _place(g, PlayerId.p1, 2, [const PlayingCard(8, c), const PlayingCard(2, sp)]);
-    g.round = 4;
     g.hands[PlayerId.p0]!.clear();
     g.hands[PlayerId.p1]!.clear();
     return g;

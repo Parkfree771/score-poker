@@ -4,6 +4,7 @@ import 'package:score_poker/l10n/app_localizations.dart';
 import 'package:score_poker/l10n/app_localizations_en.dart';
 import 'package:score_poker/ui/game_screen.dart';
 import 'package:score_poker/ui/widgets/board_view.dart';
+import 'package:score_poker/ui/widgets/joker_card.dart';
 
 Widget _app() => MaterialApp(
       locale: const Locale('en'),
@@ -25,18 +26,18 @@ Future<void> _finishDealing(WidgetTester tester) async {
   }
 }
 
-/// 판이 끝날 때까지(5라운드 × 60초 타이머 + 연출) 가짜 시간을 흘린다.
+/// 판이 끝날 때까지(교대 턴 × 20초 타이머 + 연출) 가짜 시간을 흘린다.
 ///
-/// 화면은 라운드 타이머와 AI 예약을 계속 돌리므로, **끝까지 돌리지 않으면**
+/// 화면은 턴 타이머와 봇 예약을 계속 돌리므로, **끝까지 돌리지 않으면**
 /// 테스트 종료 시 살아 있는 타이머 때문에 실패한다.
 Future<void> _playToEnd(WidgetTester tester) async {
-  for (var i = 0; i < 900; i++) {
+  for (var i = 0; i < 1600; i++) {
     await tester.pump(const Duration(milliseconds: 500));
   }
 }
 
 void main() {
-  testWidgets('딜링이 끝나면 보드와 손패 6장이 보인다 (세로)', (tester) async {
+  testWidgets('딜링이 끝나면 보드와 손패 5장이 보인다 (세로)', (tester) async {
     tester.view.physicalSize = const Size(400, 850);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
@@ -46,7 +47,7 @@ void main() {
     await _finishDealing(tester);
 
     expect(find.byType(BoardView), findsOneWidget);
-    expect(_labeled('hand-'), findsNWidgets(6)); // 시작 손패 6장
+    expect(_labeled('hand-'), findsNWidgets(5)); // 시작 손패 4장 + 첫 드로
     expect(tester.takeException(), isNull);
 
     await _playToEnd(tester);
@@ -75,13 +76,26 @@ void main() {
     await tester.pumpWidget(_app());
     await _finishDealing(tester);
 
-    await tester.tap(_labeled('hand-0'));
+    // 조커는 배치 시트가 열리므로 조커 아닌 카드를 고른다.
+    var idx = 0;
+    for (; idx < 5; idx++) {
+      final f = _labeled('hand-$idx');
+      if (f.evaluate().isEmpty) continue;
+      if (find
+          .descendant(of: f, matching: find.byType(JokerFace))
+          .evaluate()
+          .isEmpty) {
+        break;
+      }
+    }
+    await tester.tap(_labeled('hand-$idx'));
     await tester.pump();
     await tester.tap(_labeled('cell-p0-0-0'), warnIfMissed: false);
     for (var i = 0; i < 8; i++) {
       await tester.pump(const Duration(milliseconds: 150));
     }
-    expect(_labeled('hand-'), findsNWidgets(5));
+    // 배치 후 턴이 상대에게 넘어갔다가 돌아오며 드로하므로 4~5장 사이.
+    expect(_labeled('hand-').evaluate().length, inInclusiveRange(4, 5));
     expect(tester.takeException(), isNull);
 
     await _playToEnd(tester);

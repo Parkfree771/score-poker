@@ -56,14 +56,14 @@ void main() {
     }
 
     final deals = sfx.played.where((e) => e == Sfx.cardPlace).toList();
-    // 내 손에 들어온 6장만 운다(상대 6장은 무음).
-    expect(deals.length, 6);
+    // 내 손에 들어온 5장(시작 4 + 첫 드로)만 운다(상대 4장은 무음).
+    expect(deals.length, 5);
     // 내 카드가 손에 닿을 때마다 손끝의 톡.
     expect(haptics.played.where((h) => h == Haptic.select).length,
-        greaterThanOrEqualTo(6));
+        greaterThanOrEqualTo(5));
 
     // 타이머·AI 예약을 끝까지 흘려 보낸다(살아 있는 타이머가 남으면 실패한다).
-    for (var i = 0; i < 900; i++) {
+    for (var i = 0; i < 1600; i++) {
       await tester.pump(const Duration(milliseconds: 500));
     }
   });

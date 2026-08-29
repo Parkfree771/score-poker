@@ -2,291 +2,246 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:score_poker/domain/ai.dart';
 import 'package:score_poker/domain/card.dart';
 import 'package:score_poker/domain/game.dart';
-import 'package:score_poker/domain/hand.dart';
 import 'package:score_poker/domain/scoring.dart';
 
-/// 테스트용 AI 한 벌(플레이어마다 다른 기풍 — 편향된 한 성격만 도는 것을 막는다).
-final _ais = {
-  PlayerId.p0: VeiledAi(AiStyle.clode, seed: 1),
-  PlayerId.p1: VeiledAi(AiStyle.het, seed: 2),
-};
-VeiledAi ai(PlayerId p) => _ais[p]!;
+/// 봇으로 판을 끝까지 굴린다. [onMove]가 true를 돌려주면 그 시점에 멈춘다.
+bool runWithBot(ScoreGame g, {int seed = 0, bool Function(TurnMove m)? onMove}) {
+  final bots = {
+    PlayerId.p0: VeiledAi(AiStyle.clode, level: 4, seed: seed),
+    PlayerId.p1: VeiledAi(AiStyle.het, level: 4, seed: seed + 1),
+  };
+  var guard = 0;
+  while (!g.isFinished && guard++ < 500) {
+    final p = g.turn;
+    final m = bots[p]!.chooseTurn(g, p);
+    if (onMove != null && onMove(m)) return true;
+    switch (m) {
+      case MovePlace(:final handIndex, :final row, :final hidden, :final wildAs):
+        if (wildAs != null) {
+          g.placeWild(p, handIndex, row, wildAs, hidden: hidden);
+        } else {
+          g.place(p, handIndex, row, hidden: hidden);
+        }
+      case MoveAttack(:final handIndex, :final row, :final col):
+        g.attack(p, handIndex, row, col);
+      case MovePeek(:final row, :final col):
+        g.peek(p, row, col);
+      case MoveShield(:final ownField, :final row):
+        g.placeShield(p, ownField, row);
+      case MoveBurnShield():
+        g.burnShield(p);
+      case MoveDiscard(:final handIndex):
+        g.discard(p, handIndex);
+    }
+  }
+  return false;
+}
 
 void main() {
-  group('딜과 배치', () {
-    test('52장 덱, 시작 6장 + 라운드마다 3장 보충', () {
-      final g = ScoreGame.deal(seed: 1, jokers: 0);
-      expect(g.hands[PlayerId.p0]!.length, 6);
-      expect(g.hands[PlayerId.p1]!.length, 6);
-      expect(g.deckRemaining, 52 - 12);
+  group('게임 준비·턴', () {
+    test('딜: 손패 4장 + 선턴 드로, 칩 4, 덱 회계', () {
+      final g = ScoreGame.deal(seed: 1);
+      expect(g.hands[PlayerId.p0]!.length, ScoreGame.startHand + 1,
+          reason: '선턴은 드로까지 받는다');
+      expect(g.hands[PlayerId.p1]!.length, ScoreGame.startHand);
+      expect(g.veilLeft[PlayerId.p0], ScoreGame.veilsPerMatch);
+      expect(g.turn, PlayerId.p0);
+      expect(g.phase, TurnPhase.action);
+      expect(g.deckRemaining,
+          52 + ScoreGame.jokers - ScoreGame.startHand * 2 - 1);
     });
 
-    test('라운드당 3장까지만 놓을 수 있다', () {
-      final g = ScoreGame.deal(seed: 1, jokers: 0);
-      for (var i = 0; i < 3; i++) {
-        g.place(PlayerId.p0, 0, 0, i);
+    test('배치는 줄 왼쪽부터, 턴이 넘어가고 상대가 드로한다', () {
+      final g = ScoreGame.deal(seed: 1);
+      final hand = g.hands[PlayerId.p0]!;
+      final i = hand.indexWhere((c) => !c.isJoker);
+      final card = hand[i];
+      g.place(PlayerId.p0, i, 1);
+      expect(g.fields[PlayerId.p0]![1][0]!.card, card);
+      expect(g.fields[PlayerId.p0]![1][0]!.faceUp, isTrue, reason: '기본은 앞면');
+      expect(g.turn, PlayerId.p1);
+      expect(g.hands[PlayerId.p1]!.length, ScoreGame.startHand + 1);
+      expect(g.nextCol(PlayerId.p0, 1), 1, reason: '다음은 2번 칸');
+    });
+
+    test('내 턴이 아니면 못 둔다', () {
+      final g = ScoreGame.deal(seed: 1);
+      expect(() => g.place(PlayerId.p1, 0, 0), throwsStateError);
+    });
+
+    test('뒷면 배치 = 칩 1, 상대에게 안 보인다', () {
+      final g = ScoreGame.deal(seed: 1);
+      final i = g.hands[PlayerId.p0]!.indexWhere((c) => !c.isJoker);
+      g.place(PlayerId.p0, i, 0, hidden: true);
+      expect(g.veilLeft[PlayerId.p0], ScoreGame.veilsPerMatch - 1);
+      final s = g.fields[PlayerId.p0]![0][0]!;
+      expect(s.faceUp, isFalse);
+      expect(g.visibleTo(PlayerId.p1, PlayerId.p0, s), isFalse);
+      expect(g.visibleTo(PlayerId.p0, PlayerId.p0, s), isTrue);
+    });
+
+    test('조커는 와일드로만 — place는 거부, placeWild는 지정 카드로', () {
+      // 조커가 손에 올 때까지 시드를 뒤진다.
+      for (var seed = 0; seed < 60; seed++) {
+        final g = ScoreGame.deal(seed: seed);
+        final ji = g.hands[PlayerId.p0]!.indexWhere((c) => c.isJoker);
+        if (ji < 0) continue;
+        expect(() => g.place(PlayerId.p0, ji, 0), throwsStateError);
+        const as = PlayingCard(14, Suit.spades);
+        g.placeWild(PlayerId.p0, ji, 0, as);
+        final s = g.fields[PlayerId.p0]![0][0]!;
+        expect(s.card, as);
+        expect(s.wild, isTrue);
+        return;
       }
-      expect(g.hands[PlayerId.p0]!.length, 3);
-      expect(() => g.place(PlayerId.p0, 0, 1, 0), throwsStateError);
-    });
-
-    test('배치는 뒷면, 빈 칸에만', () {
-      final g = ScoreGame.deal(seed: 1, jokers: 0);
-      g.place(PlayerId.p0, 0, 0, 0);
-      expect(g.fields[PlayerId.p0]![0][0]!.faceUp, isFalse);
-      expect(() => g.place(PlayerId.p0, 0, 0, 0), throwsStateError);
+      fail('60개 시드 안에 조커가 안 나옴');
     });
   });
 
-  group('공개·비공개권', () {
-    ScoreGame placedAll({int seed = 2}) {
-      final g = ScoreGame.deal(seed: seed, jokers: 0);
-      for (final p in PlayerId.values) {
-        for (var i = 2; i >= 0; i--) {
-          g.place(p, i, i % 3, g.round); // 라운드마다 다른 열
-        }
-      }
-      return g;
-    }
-
-    test('공개하면 이번 라운드 카드가 뒤집힌다', () {
-      final g = placedAll();
-      g.reveal(const {});
-      for (final (r, c) in [(0, 0), (1, 0), (2, 0)]) {
-        expect(g.fields[PlayerId.p0]![r][c]!.faceUp, isTrue);
-      }
-      expect(g.revealDone, isTrue);
+  group('훔쳐보기·공격·방어막', () {
+    test('훔쳐보기: 칩 1, 나만 확인(peeked), 턴 유지', () {
+      final g = ScoreGame.deal(seed: 1);
+      int nonJoker(PlayerId p) =>
+          g.hands[p]!.indexWhere((c) => !c.isJoker);
+      g.place(PlayerId.p0, nonJoker(PlayerId.p0), 0, hidden: true);
+      g.place(PlayerId.p1, nonJoker(PlayerId.p1), 0);
+      g.place(PlayerId.p0, nonJoker(PlayerId.p0), 1);
+      expect(g.turn, PlayerId.p1);
+      final before = g.veilLeft[PlayerId.p1]!;
+      g.peek(PlayerId.p1, 0, 0);
+      expect(g.veilLeft[PlayerId.p1], before - 1);
+      final s = g.fields[PlayerId.p0]![0][0]!;
+      expect(s.peeked, isTrue);
+      expect(s.faceUp, isFalse, reason: '모두에게 공개되는 건 아니다');
+      expect(g.visibleTo(PlayerId.p1, PlayerId.p0, s), isTrue);
+      expect(g.turn, PlayerId.p1, reason: '훔쳐보기는 턴을 안 쓴다');
     });
 
-    test('숨긴 카드는 안 뒤집히고 비공개권이 깎인다', () {
-      final g = placedAll();
-      g.reveal({
-        PlayerId.p0: {(0, 0)},
-      });
-      expect(g.fields[PlayerId.p0]![0][0]!.faceUp, isFalse);
-      expect(g.fields[PlayerId.p0]![1][0]!.faceUp, isTrue);
-      expect(g.veilLeft[PlayerId.p0], 2);
-      expect(g.veilLeft[PlayerId.p1], 3);
-    });
-
-    test('비공개권보다 많이 숨길 수 없다', () {
-      final g = placedAll();
-      g.veilLeft[PlayerId.p0] = 0;
-      expect(() => g.reveal({PlayerId.p0: {(0, 0)}}), throwsStateError);
-    });
-
-    test('peek은 상대 숨김 카드를 공개하고 비공개권을 쓴다', () {
-      final g = placedAll();
-      g.reveal({
-        PlayerId.p1: {(0, 0)},
-      });
-      g.peek(PlayerId.p0, 0, 0);
-      expect(g.fields[PlayerId.p1]![0][0]!.faceUp, isTrue);
-      expect(g.veilLeft[PlayerId.p0], 2);
-      // 이미 공개된 카드는 peek 불가
-      expect(() => g.peek(PlayerId.p0, 0, 0), throwsStateError);
-    });
-
-    test('공개된 카드만으로 계산하는 publicLine은 숨긴 정보를 새지 않는다', () {
-      final g = placedAll();
-      g.reveal({
-        PlayerId.p1: {(0, 0)},
-      });
-      expect(g.publicRow(PlayerId.p1, 0), isEmpty);
-      g.publicLine(PlayerId.p0, 0); // 계산만 되면 된다(크래시 없음)
-    });
-  });
-
-  group('전체 흐름', () {
-    test('5라운드 채우면 15칸, 최후 공개 후 기존 규칙으로 정산', () {
-      final g = ScoreGame.deal(seed: 7, jokers: 0);
-      while (true) {
-        for (final p in PlayerId.values) {
-          final plan = ai(p).plan(g, p)
-            ..sort((a, b) => b.handIndex.compareTo(a.handIndex));
-          for (final m in plan) {
-            g.place(p, m.handIndex, m.row, m.col);
+    test('공격: 랭크 일치 → 두 장 소멸(왼쪽 당김) + 방어막 단계', () {
+      var attacked = false;
+      for (var seed = 0; seed < 40 && !attacked; seed++) {
+        final g = ScoreGame.deal(seed: seed);
+        attacked = runWithBot(g, seed: seed, onMove: (m) {
+          if (m is! MoveAttack) return false;
+          final p = g.turn;
+          final opp = p.other;
+          final row = m.row;
+          final filledBefore = [
+            for (var c = 0; c < ScoreGame.colsN; c++)
+              if (g.fields[opp]![row][c] != null) c
+          ].length;
+          final handBefore = g.hands[p]!.length;
+          g.attack(p, m.handIndex, m.row, m.col);
+          final filledAfter = [
+            for (var c = 0; c < ScoreGame.colsN; c++)
+              if (g.fields[opp]![row][c] != null) c
+          ].length;
+          expect(filledAfter, filledBefore - 1, reason: '표적 제거');
+          // 중력: 빈 칸이 줄 끝에만 있다(가운데 구멍 없음).
+          var seenNull = false;
+          for (var c = 0; c < ScoreGame.colsN; c++) {
+            final isNull = g.fields[opp]![row][c] == null;
+            if (seenNull) expect(isNull, isTrue, reason: '왼쪽 당김');
+            seenNull = seenNull || isNull;
           }
-        }
-        g.reveal({
-          for (final p in PlayerId.values) p: ai(p).hides(g, p),
+          expect(g.hands[p]!.length, handBefore - 1);
+          expect(g.phase, TurnPhase.shield);
+          expect(g.pendingShield, isNotNull);
+          return true;
         });
-        if (g.isFinished) break;
-        g.nextRound();
       }
-      for (final p in PlayerId.values) {
-        var n = 0;
-        for (final row in g.fields[p]!) {
-          n += row.where((s) => s != null).length;
-        }
-        expect(n, 15);
-      }
-      g.revealAll();
-      for (final p in PlayerId.values) {
-        expect(g.hiddenOf(p), isEmpty);
-      }
-      final res = g.judge();
-      expect(res.outcome, isIn(MatchOutcome.values));
-      expect(res.lineOutcomes.length, 3);
+      expect(attacked, isTrue, reason: '40개 시드 안에 공격이 나와야 한다');
     });
 
-    test('AI 50판 무교착·정상 종료', () {
-      for (var seed = 0; seed < 50; seed++) {
-        final g = ScoreGame.deal(seed: seed, jokers: 0);
-        var guard = 0;
-        while (!g.isFinished && ++guard < 20) {
-          for (final p in PlayerId.values) {
-            final plan = ai(p).plan(g, p)
-              ..sort((a, b) => b.handIndex.compareTo(a.handIndex));
-            for (final m in plan) {
-              g.place(p, m.handIndex, m.row, m.col);
-            }
+    test('방어막은 상대 필드에도 놓을 수 있고, 공격 표적이 아니다', () {
+      var harassed = false;
+      for (var seed = 0; seed < 80 && !harassed; seed++) {
+        final g = ScoreGame.deal(seed: seed);
+        harassed = runWithBot(g, seed: seed, onMove: (m) {
+          if (m is! MoveShield || m.ownField) return false;
+          final by = g.turn;
+          final owner = by.other;
+          final col = g.nextCol(owner, m.row);
+          if (col < 0) return false;
+          final shieldCard = g.pendingShield!;
+          g.placeShield(by, false, m.row);
+          final s = g.fields[owner]![m.row][col]!;
+          expect(s.card, shieldCard);
+          expect(s.shield, isTrue);
+          expect(s.faceUp, isTrue, reason: '방어막은 공정하게 앞면');
+          // 공격 표적 목록에 안 뜬다.
+          for (final (r, c) in g.attackTargets(owner.other, s.card.rank)) {
+            expect(g.fields[owner]![r][c]!.shield, isFalse);
           }
-          g.reveal({
-            for (final p in PlayerId.values) p: ai(p).hides(g, p),
-          });
-          final peek = ai(PlayerId.p1).peek(g, PlayerId.p1);
-          if (peek != null && g.hiddenOf(PlayerId.p0).isNotEmpty) {
-            g.peek(PlayerId.p1, peek.$1, peek.$2);
-          }
-          if (!g.isFinished) g.nextRound();
-        }
-        expect(g.isFinished, isTrue, reason: 'seed $seed 미종료');
-        g.revealAll();
-        g.judge();
+          return true;
+        });
       }
+      expect(harassed, isTrue, reason: '80개 시드 안에 괴롭히기가 나와야 한다');
+    });
+
+    test('뒷면 카드는 공격할 수 없지만 훔쳐본 뒤에는 가능하다', () {
+      final g = ScoreGame.deal(seed: 3);
+      int nonJoker(PlayerId p) => g.hands[p]!.indexWhere((c) => !c.isJoker);
+      // 내가 뒷면으로 놓는다.
+      final i = nonJoker(PlayerId.p0);
+      final hiddenCard = g.hands[PlayerId.p0]![i];
+      g.place(PlayerId.p0, i, 0, hidden: true);
+      final s = g.fields[PlayerId.p0]![0][0]!;
+      // 상대 눈에는 표적이 아니다.
+      expect(g.attackTargets(PlayerId.p1, hiddenCard.rank), isEmpty);
+      // 상대가 훔쳐보면 표적이 된다.
+      g.peek(PlayerId.p1, 0, 0);
+      expect(s.peeked, isTrue);
+      expect(g.attackTargets(PlayerId.p1, hiddenCard.rank),
+          contains((0, 0)));
     });
   });
 
-  group('부스트(칩 +1 · 스왑 1회)', () {
-    test('부스트 판은 그쪽만 칩 4개, 상대는 3개', () {
-      final g = ScoreGame.deal(seed: 1, jokers: 0, boostFor: PlayerId.p0);
-      expect(g.veilLeft[PlayerId.p0], 4);
-      expect(g.veilsMax(PlayerId.p0), 4);
-      expect(g.veilLeft[PlayerId.p1], 3);
-      expect(g.veilsMax(PlayerId.p1), 3);
-      expect(g.isBoosted(PlayerId.p0), isTrue);
-      expect(g.canSwap(PlayerId.p1), isFalse, reason: '부스트 없는 쪽은 스왑 없음');
+  group('종료·정산', () {
+    test('판은 반드시 끝나고, 최후 공개 후 본편 판정이 나온다', () {
+      for (final seed in [2, 7, 21]) {
+        final g = ScoreGame.deal(seed: seed);
+        runWithBot(g, seed: seed);
+        expect(g.isFinished, isTrue);
+        g.revealAll();
+        for (final p in PlayerId.values) {
+          expect(g.hiddenOf(p), isEmpty);
+        }
+        final res = g.judge();
+        expect(res.lineOutcomes.length, 3);
+        expect(res.outcome, isA<MatchOutcome>());
+      }
     });
 
-    test('스왑은 받은 카드 전부를 새로 받고, 판에 한 번뿐', () {
-      final g = ScoreGame.deal(seed: 2, jokers: 0, boostFor: PlayerId.p0);
-      final before = List.of(g.hands[PlayerId.p0]!);
+    test('버리기는 내 필드가 만석일 때만', () {
+      final g = ScoreGame.deal(seed: 1);
+      expect(() => g.discard(PlayerId.p0, 0), throwsStateError,
+          reason: '놓을 곳이 있으면 못 버린다');
+    });
+  });
+
+  group('부스트', () {
+    test('부스트 판: 칩 5, 스왑 1회 — 손 전체 교체', () {
+      final g = ScoreGame.deal(seed: 1, boostFor: PlayerId.p0);
+      expect(g.veilLeft[PlayerId.p0], ScoreGame.veilsPerMatch + 1);
+      expect(g.veilsMax(PlayerId.p0), ScoreGame.veilsPerMatch + 1);
       expect(g.canSwap(PlayerId.p0), isTrue);
+      final before = List.of(g.hands[PlayerId.p0]!);
       final fresh = g.swap(PlayerId.p0);
-      expect(fresh.length, ScoreGame.startHand, reason: '첫 라운드는 받은 6장 전부');
-      expect(g.hands[PlayerId.p0]!.length, ScoreGame.startHand);
-      expect(g.hands[PlayerId.p0]!.any(before.contains), isFalse, reason: '옛 카드가 남으면 안 된다');
-      expect(g.canSwap(PlayerId.p0), isFalse, reason: '한 판에 1회');
-      expect(() => g.swap(PlayerId.p0), throwsStateError);
-    });
-
-    test('받은 카드를 한 장이라도 놓으면 스왑 불가', () {
-      final g = ScoreGame.deal(seed: 3, jokers: 0, boostFor: PlayerId.p0);
-      g.place(PlayerId.p0, 0, 0, 0);
+      expect(fresh.length, before.length);
+      expect(g.swapLeft[PlayerId.p0], 0);
       expect(g.canSwap(PlayerId.p0), isFalse);
     });
 
-    test('다음 라운드엔 보충 3장이 스왑 대상', () {
-      final g = ScoreGame.deal(seed: 4, jokers: 0, boostFor: PlayerId.p0);
-      for (final p in PlayerId.values) {
-        for (var i = 0; i < 3; i++) {
-          g.place(p, 0, i, 0);
-        }
-      }
-      g.reveal(const {});
-      g.nextRound();
-      expect(g.drawnThisRound(PlayerId.p0).length, ScoreGame.refill);
-      final kept = g.hands[PlayerId.p0]!.sublist(0, 3);
-      g.swap(PlayerId.p0);
-      expect(g.hands[PlayerId.p0]!.sublist(0, 3), kept, reason: '지난 라운드 카드는 그대로');
-    });
-  });
-  group('조커', () {
-    /// [p] 손패 맨 앞에 조커를 끼워 넣는다(덱 순서와 무관하게 재현).
-    int giveJoker(ScoreGame g, PlayerId p) {
-      g.hands[p]!.insert(0, const PlayingCard.joker());
-      return 0;
-    }
-
-    test('덱은 52장 + 조커 2장', () {
-      final g = ScoreGame.deal(seed: 1);
-      expect(g.deckRemaining, 54 - 12);
-    });
-
-    test('와일드: 조커를 원하는 카드로 내 빈 칸에 놓는다(3장 배치의 하나)', () {
-      final g = ScoreGame.deal(seed: 1);
-      final i = giveJoker(g, PlayerId.p0);
-      expect(() => g.place(PlayerId.p0, i, 0, 0), throwsStateError);
-      g.placeWild(PlayerId.p0, i, 0, 0, const PlayingCard(14, Suit.spades));
-      final slot = g.fields[PlayerId.p0]![0][0]!;
-      expect(slot.card, const PlayingCard(14, Suit.spades));
-      expect(slot.wild, isTrue);
-      expect(slot.faceUp, isFalse);
-      expect(g.leftToPlace(PlayerId.p0), 2);
-    });
-
-    test('강타: 별도 행동, 빈 칸 불가, 공개 뒤 발동해 앞면으로 바뀐다', () {
-      final g = ScoreGame.deal(seed: 2, jokers: 0);
-      // 1라운드: p1이 (0,0)에 놓고 숨긴다.
-      g.place(PlayerId.p1, 0, 0, 0);
-      g.place(PlayerId.p1, 0, 1, 0);
-      g.place(PlayerId.p1, 0, 2, 0);
-      g.place(PlayerId.p0, 0, 0, 0);
-      g.place(PlayerId.p0, 0, 1, 0);
-      g.place(PlayerId.p0, 0, 2, 0);
-      g.reveal({PlayerId.p1: {(0, 0)}});
-      g.nextRound();
-      expect(g.fields[PlayerId.p1]![0][0]!.faceUp, isFalse);
-
-      final i = giveJoker(g, PlayerId.p0);
-      final handBefore = g.hands[PlayerId.p0]!.length;
-      expect(() => g.declareStrike(PlayerId.p0, i, 0, 4, const PlayingCard(2, Suit.clubs)),
-          throwsStateError, reason: '빈 칸');
-      g.declareStrike(PlayerId.p0, i, 0, 0, const PlayingCard(2, Suit.clubs));
-      expect(g.hands[PlayerId.p0]!.length, handBefore - 1);
-      expect(g.leftToPlace(PlayerId.p0), 3, reason: '강타는 배치 수를 안 먹는다');
-      expect(g.pendingStrikes[PlayerId.p0]!.length, 1);
-      // 발동 전엔 원래 카드 그대로(숨긴 채).
-      expect(g.fields[PlayerId.p1]![0][0]!.faceUp, isFalse);
-
-      for (var k = 0; k < 3; k++) {
-        g.place(PlayerId.p0, 0, k, 1);
-        g.place(PlayerId.p1, 0, k, 1);
-      }
-      g.reveal(const {}, deferStrikes: true);
-      expect(g.fields[PlayerId.p1]![0][0]!.faceUp, isFalse, reason: '미룬 강타는 아직');
-      final done = g.resolveStrikes();
-      expect(done.length, 1);
-      final struck = g.fields[PlayerId.p1]![0][0]!;
-      expect(struck.card, const PlayingCard(2, Suit.clubs));
-      expect(struck.faceUp, isTrue);
-      expect(struck.strikeBy, PlayerId.p0);
-      expect(struck.jokered, isTrue);
-      expect(g.pendingStrikes[PlayerId.p0], isEmpty);
-    });
-
-    test('강타 취소: 조커가 손으로 돌아온다', () {
-      final g = ScoreGame.deal(seed: 3, jokers: 0);
-      g.place(PlayerId.p1, 0, 0, 0);
-      final i = giveJoker(g, PlayerId.p0);
-      g.declareStrike(PlayerId.p0, i, 0, 0, const PlayingCard(3, Suit.hearts));
-      expect(g.hands[PlayerId.p0]!.any((c) => c.isJoker), isFalse);
-      g.cancelStrike(PlayerId.p0, 0, 0);
-      expect(g.hands[PlayerId.p0]!.any((c) => c.isJoker), isTrue);
-      expect(g.pendingStrikes[PlayerId.p0], isEmpty);
-    });
-
-    test('강타로 바뀐 카드는 그 줄 족보에 그대로 들어간다(붕괴)', () {
-      final g = ScoreGame.deal(seed: 4);
-      // p1 0번 줄에 K K K를 강제로 깔아 두고 하나를 2로 바꾼다.
-      for (var c = 0; c < 3; c++) {
-        g.fields[PlayerId.p1]![0][c] = VeiledSlot(PlayingCard(13, Suit.values[c]), round: 0, faceUp: true);
-      }
-      final i = giveJoker(g, PlayerId.p0);
-      g.declareStrike(PlayerId.p0, i, 0, 1, const PlayingCard(2, Suit.clubs));
-      g.resolveStrikes();
-      expect(evaluateHand(g.allRows(PlayerId.p1)[0]).category, HandCategory.onePair);
+    test('한 수라도 뒀으면 스왑 불가', () {
+      final g = ScoreGame.deal(seed: 1, boostFor: PlayerId.p0);
+      final i = g.hands[PlayerId.p0]!.indexWhere((c) => !c.isJoker);
+      g.place(PlayerId.p0, i, 0);
+      // 상대 턴을 소비해 내 턴으로 돌아와도 이미 acted.
+      final j = g.hands[PlayerId.p1]!.indexWhere((c) => !c.isJoker);
+      g.place(PlayerId.p1, j, 0);
+      expect(g.turn, PlayerId.p0);
+      expect(g.canSwap(PlayerId.p0), isFalse);
     });
   });
 }

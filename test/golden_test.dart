@@ -42,7 +42,7 @@ void main() {
     // 라인1: 내가 우세, 라인2: 비슷, 라인3: 상대 우세 (왼쪽부터 채움 = col0,1..)
     final g = ScoreGame.deal(seed: 3);
     void put(PlayerId p, int row, int col, PlayingCard c) =>
-        g.fields[p]![row][col] = VeiledSlot(c, round: 0, faceUp: true);
+        g.fields[p]![row][col] = VeiledSlot(c, faceUp: true);
     put(PlayerId.p0, 0, 0, const PlayingCard(Ranks.king, Suit.hearts));
     put(PlayerId.p0, 0, 1, const PlayingCard(Ranks.king, Suit.spades));
     put(PlayerId.p1, 0, 0, const PlayingCard(3, Suit.clubs));
@@ -53,9 +53,9 @@ void main() {
     put(PlayerId.p1, 2, 1, const PlayingCard(8, Suit.spades));
     put(PlayerId.p0, 2, 0, const PlayingCard(2, Suit.clubs));
     // 가림 룰의 상태 3종을 한 컷에: 상대 뒷면 / 내 홀카드 / 봉인.
-    g.fields[PlayerId.p1]![0][1] = VeiledSlot(const PlayingCard(7, Suit.hearts), round: 1);
-    g.fields[PlayerId.p0]![1][1] = VeiledSlot(const PlayingCard(4, Suit.spades), round: 1);
-    g.fields[PlayerId.p0]![2][1] = VeiledSlot(const PlayingCard(Ranks.ace, Suit.clubs), round: 1);
+    g.fields[PlayerId.p1]![0][1] = VeiledSlot(const PlayingCard(7, Suit.hearts));
+    g.fields[PlayerId.p0]![1][1] = VeiledSlot(const PlayingCard(4, Suit.spades));
+    g.fields[PlayerId.p0]![2][1] = VeiledSlot(const PlayingCard(Ranks.ace, Suit.clubs));
 
     await tester.pumpWidget(MaterialApp(
       // 점수 알약이 족보 이름을 쓰므로 실제 앱과 같은 로컬라이제이션을 물린다.

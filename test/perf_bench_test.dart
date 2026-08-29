@@ -40,7 +40,6 @@ void main() {
         for (var col = 0; col < kCols; col++) {
           g.fields[p]![row][col] = VeiledSlot(
             PlayingCard(2 + (r++ % 13), Suit.values[r % 4]),
-            round: 0,
             faceUp: (row + col) % 4 != 0, // 몇 칸은 뒷면으로 남긴다
           );
         }

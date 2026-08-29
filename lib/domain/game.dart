@@ -5,46 +5,42 @@ import 'scoring.dart';
 
 export 'board.dart';
 
-/// 스코어 포커 규칙 엔진 (순수 Dart). UI/네트워크와 분리되어 테스트로 검증 가능.
+/// 스코어 포커 규칙 엔진 v4 "스트라이크" (순수 Dart). UI/네트워크와 분리.
 ///
 /// 판은 3줄 × 5칸 vs 3줄 × 5칸. 같은 번호 줄끼리 족보로 겨루고 **2줄을 이기면 승리**한다.
-/// 이 규칙의 핵심은 **정보를 가린다**는 것이다:
+/// v3(동시 라운드·공개)에서 **교대 턴 + 공격** 구조로 전면 개편:
 ///
-/// - R1) **뒷면 배치**: 카드는 항상 뒷면으로 놓인다. 상대가 *어디에* 두는지는 실시간으로
-///       보이지만 *무엇을* 두는지는 공개 전까지 모른다 → 배치 위치·순서 자체가 심리전이다.
-/// - R2) **라운드**: 시작 손패 [startHand]장, 매 라운드 [refill]장 보충. 한 라운드에
-///       손에서 [perRound]장을 골라 배치한다. 손이 배치 수보다 크므로 "어떤 3장을 낼까"가
-///       매 라운드의 선택이 된다. [totalRounds]라운드 × 3장 = 15칸.
-/// - R3) **동시 공개**: 라운드가 끝나면 그 라운드에 놓인 카드가 양쪽 동시에 뒤집힌다.
-///       한 번 공개된 카드는 계속 공개 상태다.
-/// - R4) **비공개권 [veilsPerMatch]개**(판 전체, 겸용 자원): 공개 때 내 카드를 **숨기거나**,
-///       아껴 두었다가 **상대가 숨긴 카드를 열어보는 데** 쓴다. 숨기기와 열어보기가 같은
-///       주머니에서 나오므로 "지금 숨길까, 나중에 읽을까"의 상충이 생긴다.
-/// - R5) 마지막 라운드까지 끝나면 남은 뒷면 카드를 전부 여는 **최후 공개** 후 정산한다.
-/// - R6) **조커 [jokers]장**(덱에 섞여 손에 들어온다). 두 가지 쓰임:
-///       ① **와일드** — 내 빈 칸에 원하는 랭크·무늬로 놓는다([placeWild], 3장 배치의 하나,
-///          뒷면·숨기기 가능). ② **강타** — 상대 판의 **이미 놓인 카드**(공개·비공개 무관)를
-///          내가 정한 카드로 **바꿔치기**한다([declareStrike]). 강타는 3장 배치와 **별도 행동**이며
-///          공개 때 기본 3장이 뒤집힌 뒤 발동한다([resolveStrikes]). 바뀐 카드는 앞면이 된다.
+/// - R1) **턴제 드로**: 시작 손패 [startHand]장. 매 턴 시작에 덱에서 1장 **비공개로**
+///       뽑는다(교대 턴). 내 손이 계속 5장으로 유지된다.
+/// - R2) **순서 배치**: 카드는 자기 줄의 **왼쪽부터 차례로** 놓인다(1번 칸을 채워야
+///       2번 칸). 기본은 **앞면**(상대에게 공개), **뒷면 배치 = 칩 1**.
+/// - R3) **공격(스트라이크)**: 손패의 랭크 = 상대 필드의 **보이는** 카드 랭크면 그 카드를
+///       지목해 **두 장 모두 제거**한다(오른쪽 카드가 왼쪽으로 당겨진다). 공격자는 보충
+///       1장을 뽑는데 이것이 **방어막 카드**다(R4).
+/// - R4) **방어막**: 공격 보충 카드는 공격에 못 쓰고 공격받지도 않지만, **양쪽 필드
+///       아무 유효 칸**에 놓을 수 있다 — 내 빈칸을 채우거나 상대 줄에 낮은 카드를 꽂아
+///       족보를 방해한다.
+/// - R5) **칩 [veilsPerMatch]개**(판 전체, 겸용): 뒷면 배치, 또는 **훔쳐보기**(상대 뒷면
+///       1장을 나만 확인 — 이후 내가 공격할 수 있다. 턴 소모 없음).
+/// - R6) **조커 [jokers]장**: 내 빈 칸에 원하는 카드로 놓는 **와일드**([placeWild],
+///       뒷면 가능). 조커로 공격할 수는 없다.
+/// - R7) 양쪽 필드 완성 또는 덱 소진 시 전 카드 공개 → 3줄 2승(동수면 총점) 정산.
 ///
-/// **부스트**(상점 상품, 판당 1개까지 — [ScoreGame.deal]의 `boostFor`): 그 판에서
-/// 비공개권 칩이 +1(3→4), **손패 스왑** 1회. 스왑은 이번 라운드에 **받은 카드 전부**를
-/// 새로 받는 것이다(선택 교체 아님). 받은 카드 중 한 장이라도 필드에 놓았으면 못 쓴다.
+/// **부스트**(상점 상품, 판당 1개 — [ScoreGame.deal]의 `boostFor`): 칩 +1(4→5),
+/// **손패 스왑** 1회(내 턴에 손 전체를 새로 받는다. 한 수라도 뒀으면 못 쓴다).
 ///
-/// 타이머는 UI 관심사 — 도메인은 배치·공개·비공개권의 회계만 책임진다.
+/// 수치 근거: 시작 패 4장·칩 4개는 52장 덱 시뮬(strike_sim.py)로 확정 —
+/// 공격 4.3회/판, 패 6장은 덱 소진 종료 55%로 탈락. 자세한 표는 docs/RULES.md §시뮬.
 class ScoreGame {
   ScoreGame._(this._deck);
 
   static const int rowsN = kRows;
   static const int colsN = kCols;
-  static const int perRound = 3;
-  static const int totalRounds = 5; // 5 × 3장 = 15칸
-  static const int startHand = 6;
-  static const int refill = 3;
-  static const int veilsPerMatch = 3;
+  static const int startHand = 4;
+  static const int veilsPerMatch = 4;
   static const int jokers = 2;
 
-  /// 52장 덱으로 시작, 각자 [startHand]장 딜. [boostFor]가 있으면 그 쪽만 부스트 판이다.
+  /// 덱(52+조커)으로 시작, 각자 [startHand]장 딜, 선턴(p0)이 첫 드로까지 받는다.
   factory ScoreGame.deal({int? seed, PlayerId? boostFor, int jokers = ScoreGame.jokers}) {
     final g = ScoreGame._(Deck.shuffled(seed: seed, jokers: jokers));
     if (boostFor != null) {
@@ -53,14 +49,13 @@ class ScoreGame {
       g._boosted[boostFor] = true;
     }
     for (final p in PlayerId.values) {
-      final drawn = g._deck.draw(startHand);
-      g.hands[p]!.addAll(drawn);
-      g._drawnThisRound[p] = List.of(drawn);
+      g.hands[p]!.addAll(g._deck.draw(startHand));
     }
+    g._beginTurn();
     return g;
   }
 
-  /// [p]의 판 전체 비공개권 최대치(부스트면 4). 레일의 칩 소켓 수.
+  /// [p]의 판 전체 칩 최대치(부스트면 5). 레일의 칩 소켓 수.
   int veilsMax(PlayerId p) => _boosted[p]! ? veilsPerMatch + 1 : veilsPerMatch;
 
   bool isBoosted(PlayerId p) => _boosted[p]!;
@@ -73,32 +68,26 @@ class ScoreGame {
     for (final p in PlayerId.values) p: false,
   };
 
-  /// 이번 라운드에 **받은** 카드(스왑 대상). 딜/보충 때 채운다.
-  final Map<PlayerId, List<PlayingCard>> _drawnThisRound = {
-    PlayerId.p0: [],
-    PlayerId.p1: [],
+  /// [p]가 이 판에서 카드를 한 장이라도 놓거나 공격했는가(스왑·부스트 환불 판단용).
+  late final Map<PlayerId, bool> acted = {
+    for (final p in PlayerId.values) p: false,
   };
 
-  List<PlayingCard> drawnThisRound(PlayerId p) => List.unmodifiable(_drawnThisRound[p]!);
-
-  /// 스왑 가능? 부스트가 남아 있고, 이번 라운드에 아직 **한 장도 놓지 않았고**, 공개 전.
+  /// 스왑 가능? 부스트가 남아 있고, 내 턴이고, 아직 **한 수도 안 뒀고**, 덱이 넉넉할 때.
   bool canSwap(PlayerId p) =>
       swapLeft[p]! > 0 &&
-      !revealDone &&
-      placedThisRound(p).isEmpty &&
-      _drawnThisRound[p]!.isNotEmpty &&
-      _deck.remaining >= _drawnThisRound[p]!.length;
+      turn == p &&
+      phase == TurnPhase.action &&
+      !acted[p]! &&
+      _deck.remaining >= hands[p]!.length;
 
-  /// 이번 라운드에 받은 카드를 **전부** 새로 받는다. 새 카드 목록을 돌려준다.
+  /// 손패 **전부**를 새로 받는다. 새 카드 목록을 돌려준다.
   List<PlayingCard> swap(PlayerId p) {
     if (!canSwap(p)) throw StateError('지금은 스왑할 수 없다');
-    final hand = hands[p]!;
-    for (final c in _drawnThisRound[p]!) {
-      hand.remove(c);
-    }
-    final fresh = _deck.draw(_drawnThisRound[p]!.length);
-    hand.addAll(fresh);
-    _drawnThisRound[p] = List.of(fresh);
+    final old = List.of(hands[p]!);
+    hands[p]!.clear();
+    final fresh = _deck.draw(old.length);
+    hands[p]!.addAll(fresh);
     swapLeft[p] = swapLeft[p]! - 1;
     return fresh;
   }
@@ -106,7 +95,7 @@ class ScoreGame {
   final Deck _deck;
   int get deckRemaining => _deck.remaining;
 
-  /// 손패(시작 6장, 매 라운드 3장 보충). 배치하면 빠진다.
+  /// 손패(시작 4장 + 매 턴 1장 드로, 쓰면 빠진다).
   final Map<PlayerId, List<PlayingCard>> hands = {
     PlayerId.p0: [],
     PlayerId.p1: [],
@@ -120,164 +109,198 @@ class ScoreGame {
       ],
   };
 
-  /// 남은 비공개권(숨기기/열어보기 겸용). 부스트 판은 4로 시작한다.
+  /// 남은 칩(뒷면 배치/훔쳐보기 겸용). 부스트 판은 5로 시작한다.
   final Map<PlayerId, int> veilLeft = {
     PlayerId.p0: veilsPerMatch,
     PlayerId.p1: veilsPerMatch,
   };
 
-  int round = 0; // 0..totalRounds-1
+  /// 지금 누구의 턴인가.
+  PlayerId turn = PlayerId.p0;
 
-  /// 이번 라운드 공개를 마쳤는가. (공개 후 [nextRound] 전까지 true)
-  bool revealDone = false;
+  /// 턴이 기다리는 행동.
+  TurnPhase phase = TurnPhase.action;
 
-  bool get isFinished => round >= totalRounds - 1 && revealDone;
+  /// 공격 직후 배치를 기다리는 방어막 카드(공격자가 놓는다).
+  PlayingCard? pendingShield;
 
-  /// [p]가 이번 라운드에 더 놓을 수 있는 장수.
-  int leftToPlace(PlayerId p) => perRound - placedThisRound(p).length;
+  /// 이번 턴 시작에 뽑은 카드(연출용 — 손패의 마지막 장).
+  PlayingCard? lastDrawn;
 
-  /// 양쪽 모두 이번 라운드 3장을 다 놓았는가.
-  bool get allPlaced =>
-      leftToPlace(PlayerId.p0) <= 0 && leftToPlace(PlayerId.p1) <= 0;
+  bool get isFinished => phase == TurnPhase.finished;
 
-  /// [p]의 손패 [handIndex]를 자기 필드 빈 칸에 **뒷면**으로 놓는다.
-  /// 라운드당 정확히 [perRound]장까지. 조커는 [placeWild]로만 놓는다.
-  void place(PlayerId p, int handIndex, int row, int col) {
+  // ---- 턴 회전 ----
+
+  void _beginTurn() {
+    if ((fieldFull(PlayerId.p0) && fieldFull(PlayerId.p1)) || _deck.isEmpty) {
+      phase = TurnPhase.finished;
+      return;
+    }
+    lastDrawn = _deck.drawOne();
+    hands[turn]!.add(lastDrawn!);
+    phase = TurnPhase.action;
+  }
+
+  void _endTurn() {
+    turn = turn.other;
+    _beginTurn();
+  }
+
+  // ---- 조회 ----
+
+  bool fieldFull(PlayerId p) =>
+      fields[p]!.every((row) => row.every((s) => s != null));
+
+  /// [p]의 [row]에서 다음에 채워질 칸(왼쪽부터). 꽉 찼으면 -1.
+  int nextCol(PlayerId p, int row) {
+    for (var c = 0; c < colsN; c++) {
+      if (fields[p]![row][c] == null) return c;
+    }
+    return -1;
+  }
+
+  /// [p]의 아직 안 찬 줄들.
+  List<int> openRows(PlayerId p) =>
+      [for (var r = 0; r < rowsN; r++) if (nextCol(p, r) >= 0) r];
+
+  /// [owner]의 칸 [s]가 [viewer] 눈에 보이는가 —
+  /// 주인은 항상, 남은 앞면이거나 훔쳐봤을 때만.
+  bool visibleTo(PlayerId viewer, PlayerId owner, VeiledSlot s) =>
+      viewer == owner || s.faceUp || s.peeked;
+
+  /// [p]가 [rank]로 때릴 수 있는 상대 카드 위치들.
+  /// 방어막은 못 때리고, 뒷면은 훔쳐봤을 때만 보인다.
+  List<(int, int)> attackTargets(PlayerId p, int rank) {
+    final opp = p.other;
+    return [
+      for (var r = 0; r < rowsN; r++)
+        for (var c = 0; c < colsN; c++)
+          if (fields[opp]![r][c] case final s?
+              when !s.shield && visibleTo(p, opp, s) && s.card.rank == rank)
+            (r, c),
+    ];
+  }
+
+  // ---- 행동 (전부 [turn]의 플레이어만) ----
+
+  void _checkAction(PlayerId p) {
+    if (phase != TurnPhase.action) throw StateError('지금은 본 행동 차례가 아니다');
+    if (turn != p) throw StateError('내 턴이 아니다');
+  }
+
+  /// 배치 — [row]의 다음 칸(왼쪽부터). [hidden]이면 칩 1 소모(뒷면).
+  void place(PlayerId p, int handIndex, int row, {bool hidden = false}) {
     if (hands[p]![handIndex].isJoker) throw StateError('조커는 카드를 정해서 놓는다');
-    _placeSlot(p, handIndex, row, col, hands[p]![handIndex], wild: false);
+    _placeSlot(p, handIndex, row, hands[p]![handIndex], wild: false, hidden: hidden);
   }
 
-  /// 조커를 내 빈 칸에 [as] 카드로 놓는다(와일드). 3장 배치의 하나로 센다.
-  void placeWild(PlayerId p, int handIndex, int row, int col, PlayingCard as) {
+  /// 조커를 내 줄에 [as] 카드로 놓는다(와일드).
+  void placeWild(PlayerId p, int handIndex, int row, PlayingCard as,
+      {bool hidden = false}) {
     if (!hands[p]![handIndex].isJoker) throw StateError('조커가 아니다');
     if (as.isJoker) throw StateError('조커를 조커로 지정할 수 없다');
-    _placeSlot(p, handIndex, row, col, as, wild: true);
+    _placeSlot(p, handIndex, row, as, wild: true, hidden: hidden);
   }
 
-  void _placeSlot(PlayerId p, int handIndex, int row, int col, PlayingCard card,
-      {required bool wild}) {
-    if (revealDone) throw StateError('공개 후에는 배치할 수 없다');
-    if (leftToPlace(p) <= 0) throw StateError('이번 라운드 배치는 $perRound장까지다');
-    if (fields[p]![row][col] != null) throw StateError('빈 칸이 아니다');
-    hands[p]!.removeAt(handIndex);
-    fields[p]![row][col] = VeiledSlot(card, round: round, wild: wild);
-  }
-
-  /// 이번 라운드에 예고된 강타(공개 때 발동). 위치는 상대에게 실시간으로 보인다 —
-  /// 뒷면 배치와 같은 원칙(어디에 두는지는 노출, 무엇으로 바꾸는지는 비공개).
-  final Map<PlayerId, List<JokerStrike>> pendingStrikes = {
-    PlayerId.p0: [],
-    PlayerId.p1: [],
-  };
-
-  /// 마지막 [reveal]/[resolveStrikes]에서 실제로 발동한 강타(연출용).
-  List<JokerStrike> lastStrikes = const [];
-
-  /// [p]가 손패의 조커 [handIndex]로 상대 카드 ([row],[col])를 [as]로 바꾸겠다고 예고한다.
-  /// 표적은 **이미 놓인 카드**(빈 칸 불가, 공개·비공개 무관). 3장 배치와 별도 행동.
-  void declareStrike(PlayerId p, int handIndex, int row, int col, PlayingCard as) {
-    if (revealDone) throw StateError('공개 후에는 강타할 수 없다');
-    if (!hands[p]![handIndex].isJoker) throw StateError('조커가 아니다');
-    if (as.isJoker) throw StateError('조커를 조커로 지정할 수 없다');
-    if (fields[p.other]![row][col] == null) throw StateError('빈 칸은 강타할 수 없다');
-    if (pendingStrikes[p]!.any((s) => s.row == row && s.col == col)) {
-      throw StateError('이미 강타를 예고한 카드다');
+  void _placeSlot(PlayerId p, int handIndex, int row, PlayingCard card,
+      {required bool wild, required bool hidden}) {
+    _checkAction(p);
+    final col = nextCol(p, row);
+    if (col < 0) throw StateError('그 줄은 가득 찼다');
+    if (hidden) {
+      if (veilLeft[p]! <= 0) throw StateError('칩이 없다');
+      veilLeft[p] = veilLeft[p]! - 1;
     }
     hands[p]!.removeAt(handIndex);
-    pendingStrikes[p]!.add(JokerStrike(by: p, row: row, col: col, card: as));
+    fields[p]![row][col] = VeiledSlot(card, faceUp: !hidden, wild: wild);
+    acted[p] = true;
+    _endTurn();
   }
 
-  /// 예고한 강타를 물린다 — 조커가 손으로 돌아온다(공개 전까지 자유).
-  void cancelStrike(PlayerId p, int row, int col) {
-    final list = pendingStrikes[p]!;
-    final i = list.indexWhere((s) => s.row == row && s.col == col);
-    if (i < 0) throw StateError('예고한 강타가 없다');
-    list.removeAt(i);
-    hands[p]!.add(const PlayingCard.joker());
-  }
-
-  /// 예고된 강타를 발동한다: 표적 카드가 지정 카드로 바뀌고 **앞면**이 된다
-  /// (숨겨져 있었어도 드러난다 — 원래 카드는 사라진다). 발동 목록을 돌려준다.
-  List<JokerStrike> resolveStrikes() {
-    final done = <JokerStrike>[];
-    for (final p in PlayerId.values) {
-      for (final s in List.of(pendingStrikes[p]!)) {
-        done.add(resolveStrike(p, s.row, s.col));
-      }
+  /// 공격 — 손패 [handIndex]와 상대 ([row],[col]) 카드의 랭크가 같아야 한다.
+  /// 두 장 모두 제거(오른쪽 카드는 왼쪽으로 당겨짐) → 덱이 남았으면 방어막 드로.
+  /// 제거된 상대 카드를 돌려준다(연출용).
+  PlayingCard attack(PlayerId p, int handIndex, int row, int col) {
+    _checkAction(p);
+    final atk = hands[p]![handIndex];
+    if (atk.isJoker) throw StateError('조커로는 공격할 수 없다');
+    final target = fields[p.other]![row][col];
+    if (target == null) throw StateError('빈 칸이다');
+    if (target.shield) throw StateError('방어막은 공격할 수 없다');
+    if (!visibleTo(p, p.other, target)) throw StateError('안 보이는 카드다');
+    if (target.card.rank != atk.rank) throw StateError('랭크가 다르다');
+    hands[p]!.removeAt(handIndex);
+    _collapse(p.other, row, col);
+    acted[p] = true;
+    final shield = _deck.drawOne();
+    if (shield == null) {
+      _endTurn();
+    } else {
+      pendingShield = shield;
+      phase = TurnPhase.shield;
     }
-    lastStrikes = done;
-    return done;
+    return target.card;
   }
 
-  /// 예고된 강타 하나를 발동한다(UI가 한 방씩 연출할 때).
-  JokerStrike resolveStrike(PlayerId by, int row, int col) {
-    final list = pendingStrikes[by]!;
-    final i = list.indexWhere((s) => s.row == row && s.col == col);
-    if (i < 0) throw StateError('예고한 강타가 없다');
-    final s = list.removeAt(i);
-    final old = fields[by.other]![row][col]!;
-    fields[by.other]![row][col] = VeiledSlot(s.card, round: old.round, faceUp: true, strikeBy: by);
-    return s;
-  }
-
-  /// 동시 공개: 이번 라운드에 놓인 카드 중 [hidden]에 지정된 것만 빼고 뒤집는다.
-  /// 숨긴 장수만큼 비공개권이 깎인다. 그 다음 예고된 강타가 발동한다 —
-  /// UI가 연출을 사이에 끼우려면 [deferStrikes]로 미루고 [resolveStrikes]를 직접 부른다.
-  void reveal(Map<PlayerId, Set<(int, int)>> hidden, {bool deferStrikes = false}) {
-    if (revealDone) throw StateError('이미 공개했다');
-    if (!allPlaced) throw StateError('아직 배치가 끝나지 않았다');
-    for (final p in PlayerId.values) {
-      final h = hidden[p] ?? const {};
-      if (h.length > veilLeft[p]!) throw StateError('비공개권이 모자라다');
-      for (final pos in h) {
-        final s = fields[p]![pos.$1][pos.$2];
-        if (s == null || s.round != round) {
-          throw StateError('이번 라운드에 놓은 카드만 숨길 수 있다');
-        }
-      }
-      veilLeft[p] = veilLeft[p]! - h.length;
-      for (var r = 0; r < rowsN; r++) {
-        for (var c = 0; c < colsN; c++) {
-          final s = fields[p]![r][c];
-          if (s != null && s.round == round && !h.contains((r, c))) {
-            s.faceUp = true;
-          }
-        }
-      }
+  /// [row]에서 [col]을 제거하고 오른쪽 카드들을 한 칸씩 왼쪽으로 당긴다.
+  void _collapse(PlayerId p, int row, int col) {
+    final cells = fields[p]![row];
+    for (var c = col; c < colsN - 1; c++) {
+      cells[c] = cells[c + 1];
     }
-    revealDone = true;
-    if (!deferStrikes) resolveStrikes();
+    cells[colsN - 1] = null;
   }
 
-  /// [p]가 비공개권 1개로 **상대의 숨긴 카드**를 공개시킨다(모두에게 보인다).
-  ///
-  /// 대상은 **지난 라운드에 숨겨진 카드**뿐이다 — 이번 라운드 뒷면 카드는 어차피
-  /// 공개 때 뒤집히므로, 그걸 여는 데 비공개권을 태우는 실수를 규칙이 막아준다.
+  /// 방어막 배치 가능한 (내 필드인가, 줄) 목록. 비어 있으면 소각뿐이다.
+  List<(bool own, int row)> shieldSlots() => [
+        for (final r in openRows(turn)) (true, r),
+        for (final r in openRows(turn.other)) (false, r),
+      ];
+
+  /// 방어막 배치 — 양쪽 필드 아무 유효 줄. 양쪽 다 만석이면 [burnShield]로 소각한다.
+  /// 방어막은 항상 **앞면**이고(정보로서 공정), 공격받지 않는다.
+  void placeShield(PlayerId p, bool ownField, int row) {
+    if (phase != TurnPhase.shield || turn != p) throw StateError('방어막 차례가 아니다');
+    final owner = ownField ? p : p.other;
+    final col = nextCol(owner, row);
+    if (col < 0) throw StateError('그 줄은 가득 찼다');
+    fields[owner]![row][col] = VeiledSlot(pendingShield!, faceUp: true, shield: true);
+    pendingShield = null;
+    _endTurn();
+  }
+
+  /// 놓을 곳이 아예 없을 때 방어막을 소각한다.
+  void burnShield(PlayerId p) {
+    if (phase != TurnPhase.shield || turn != p) throw StateError('방어막 차례가 아니다');
+    if (shieldSlots().isNotEmpty) throw StateError('놓을 곳이 있으면 소각할 수 없다');
+    pendingShield = null;
+    _endTurn();
+  }
+
+  /// 훔쳐보기(턴 소모 없음, 칩 1) — 상대 뒷면 카드를 나만 확인.
+  /// 흔적([VeiledSlot.peeked])은 양쪽 다 보인다.
   void peek(PlayerId p, int row, int col) {
-    if (veilLeft[p]! <= 0) throw StateError('비공개권이 없다');
+    _checkAction(p);
+    if (veilLeft[p]! <= 0) throw StateError('칩이 없다');
     final s = fields[p.other]![row][col];
-    if (s == null || s.faceUp) throw StateError('숨긴 카드가 아니다');
-    if (s.round >= round && !revealDone) {
-      throw StateError('이번 라운드 카드는 공개 때 뒤집힌다');
+    if (s == null || s.faceUp || s.peeked || s.shield) {
+      throw StateError('훔쳐볼 카드가 아니다');
     }
-    s.faceUp = true;
+    s.peeked = true;
     veilLeft[p] = veilLeft[p]! - 1;
   }
 
-  /// 다음 라운드로 — [refill]장을 보충한다.
-  void nextRound() {
-    if (!revealDone) throw StateError('먼저 공개해야 한다');
-    if (isFinished) throw StateError('게임이 끝났다');
-    round++;
-    revealDone = false;
-    for (final p in PlayerId.values) {
-      final drawn = _deck.draw(refill);
-      hands[p]!.addAll(drawn);
-      _drawnThisRound[p] = List.of(drawn);
-    }
+  /// 버리기 — 내 필드가 만석일 때만(공격은 의무가 아니다).
+  void discard(PlayerId p, int handIndex) {
+    _checkAction(p);
+    if (openRows(p).isNotEmpty) throw StateError('놓을 곳이 있으면 버릴 수 없다');
+    hands[p]!.removeAt(handIndex);
+    _endTurn();
   }
 
-  /// 최종 정산 전 — 아직 숨겨진 카드 전부 공개(최후 공개). 좌표 목록을 돌려준다.
+  // ---- 정산 ----
+
+  /// 최종 정산 전 — 아직 숨겨진 카드 전부 공개. 좌표 목록을 돌려준다.
   List<(PlayerId, int, int)> revealAll() {
     final flipped = <(PlayerId, int, int)>[];
     for (final p in PlayerId.values) {
@@ -309,20 +332,20 @@ class ScoreGame {
           ],
       ];
 
-  /// **공개된 카드만으로** 본 줄 대결 상태(라이브 표시용 — 숨긴 정보는 새지 않는다).
+  /// [viewer] 눈에 보이는 [p]의 줄 — 라이브 점수 표시용(숨긴 정보는 새지 않는다).
+  List<PlayingCard> knownRow(PlayerId viewer, PlayerId p, int row) => [
+        for (var c = 0; c < colsN; c++)
+          if (fields[p]![row][c] case final s? when visibleTo(viewer, p, s))
+            s.card,
+      ];
+
+  /// **공개된 카드만으로** 본 줄 대결 상태(양쪽 공통 정보).
   LineOutcome publicLine(PlayerId viewer, int row) =>
-      compareLine(publicRow(viewer, row), publicRow(viewer.other, row));
+      compareLine(knownRow(viewer, viewer, row), knownRow(viewer, viewer.other, row));
 
   List<PlayingCard> publicRow(PlayerId p, int row) => [
         for (var c = 0; c < colsN; c++)
           if (fields[p]![row][c] case final s? when s.faceUp) s.card,
-      ];
-
-  /// [p] 필드에서 이번 라운드에 놓인 좌표들.
-  List<(int, int)> placedThisRound(PlayerId p) => [
-        for (var r = 0; r < rowsN; r++)
-          for (var c = 0; c < colsN; c++)
-            if (fields[p]![r][c] case final s? when s.round == round) (r, c),
       ];
 
   /// [p] 필드에서 아직 숨겨져 있는 좌표들.
@@ -339,26 +362,30 @@ class ScoreGame {
   }
 }
 
-/// 필드 한 칸: 카드 + 공개 여부 + 놓인 라운드.
-/// [wild]는 주인이 조커로 지정해 놓은 카드, [strikeBy]는 상대의 강타로 바뀐 카드.
-class VeiledSlot {
-  VeiledSlot(this.card,
-      {required this.round, this.faceUp = false, this.wild = false, this.strikeBy});
-  final PlayingCard card;
-  final int round;
-  bool faceUp;
-  final bool wild;
-  final PlayerId? strikeBy;
+/// 턴이 기다리는 행동.
+enum TurnPhase {
+  /// 본 행동(배치/공격/버리기) 대기. 훔쳐보기는 턴 소모 없는 덤 행동.
+  action,
 
-  /// 조커가 관여한 칸(와일드·강타) — 카드 위에 조커 배지가 붙는다.
-  bool get jokered => wild || strikeBy != null;
+  /// 공격 성공 → 방어막 배치 대기.
+  shield,
+
+  /// 판 종료.
+  finished,
 }
 
-/// 예고된 조커 강타: [by]가 상대 판 ([row],[col])의 카드를 [card]로 바꾼다.
-class JokerStrike {
-  const JokerStrike({required this.by, required this.row, required this.col, required this.card});
-  final PlayerId by;
-  final int row;
-  final int col;
+/// 필드 한 칸: 카드 + 상태.
+/// [wild]는 주인이 조커로 지정해 놓은 카드, [shield]는 공격 보충 카드(피격 불가),
+/// [peeked]는 상대가 칩으로 훔쳐본 뒷면 카드(훔쳐본 쪽에겐 공개 취급).
+class VeiledSlot {
+  VeiledSlot(this.card,
+      {this.faceUp = false, this.wild = false, this.shield = false});
   final PlayingCard card;
+  bool faceUp;
+  bool peeked = false;
+  final bool wild;
+  final bool shield;
+
+  /// 조커가 관여한 칸(와일드) — 카드가 조커 얼굴로 그려진다.
+  bool get jokered => wild;
 }

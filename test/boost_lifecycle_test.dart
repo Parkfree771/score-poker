@@ -5,6 +5,7 @@ import 'package:score_poker/l10n/app_localizations.dart';
 import 'package:score_poker/monetization/monetization.dart';
 import 'package:score_poker/ui/game_screen.dart';
 import 'package:score_poker/ui/theme.dart';
+import 'package:score_poker/ui/widgets/joker_card.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 부스트 토큰의 수명 — 토큰 하나는 **딱 한 판**이다.
@@ -65,18 +66,18 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('go')));
     await settle(tester);
     final state = tester.state(find.byType(GameScreen)) as dynamic;
-    expect(state.g.veilLeft[PlayerId.p0], 4, reason: '첫 판은 부스트(칩 3+1)');
+    expect(state.g.veilLeft[PlayerId.p0], 5, reason: '첫 판은 부스트(칩 4+1)');
 
     state.restartForTest();
     await settle(tester);
     expect(m.wallet.balanceOf(TokenKind.boost), 0, reason: '재시작이 토큰을 썼다');
-    expect(state.g.veilLeft[PlayerId.p0], 4, reason: '토큰이 있었으니 부스트 판');
+    expect(state.g.veilLeft[PlayerId.p0], 5, reason: '토큰이 있었으니 부스트 판');
 
     state.restartForTest();
     await settle(tester, 500);
     expect(find.text('남은 부스트가 없어요'), findsOneWidget);
     await settle(tester);
-    expect(state.g.veilLeft[PlayerId.p0], 3, reason: '토큰이 없으면 보통 판');
+    expect(state.g.veilLeft[PlayerId.p0], 4, reason: '토큰이 없으면 보통 판');
     await drain(tester);
   });
 
@@ -104,9 +105,21 @@ void main() {
     await m.wallet.spend(TokenKind.boost);
     await tester.tap(find.byKey(const ValueKey('go')));
     await settle(tester);
-    // 손패 첫 장을 첫 칸에 놓는다.
+    // 손패에서 조커 아닌 첫 장을 첫 칸에 놓는다(조커는 시트가 열린다).
+    var idx = 0;
+    for (; idx < 5; idx++) {
+      final f = find.byWidgetPredicate(
+          (w) => w.key is GlobalKey && w.key.toString().contains('hand-$idx'));
+      if (f.evaluate().isEmpty) continue;
+      if (find
+          .descendant(of: f, matching: find.byType(JokerFace))
+          .evaluate()
+          .isEmpty) {
+        break;
+      }
+    }
     await tester.tap(find.byWidgetPredicate(
-        (w) => w.key is GlobalKey && w.key.toString().contains('hand-0')));
+        (w) => w.key is GlobalKey && w.key.toString().contains('hand-$idx')));
     await tester.pump();
     await tester.tap(
         find.byWidgetPredicate(
